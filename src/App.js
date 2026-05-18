@@ -32,7 +32,9 @@ const SPOTIFY_CLIENT_ID = process.env.REACT_APP_SPOTIFY_CLIENT_ID;
 const REDIRECT_URI = process.env.REACT_APP_SPOTIFY_REDIRECT_URI || "https://localhost:3000";
 
 const ENGINES = [
-  "http://localhost:5001/api",
+  window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+    ? "http://localhost:5001/api" 
+    : "/api",
   "https://pipedapi.syncpundit.io",
   "https://pipedapi.kavin.rocks",
   "https://piped-api.garudalinux.org",
@@ -63,26 +65,22 @@ function App() {
 
   // --- ENGINE ROTATION LOGIC ---
   const fetchWithFallback = async (endpoint) => {
-    // If it's a search on the local pipeline, it's already /api/search
-    // If it's a piped engine, it expects /search
-    
     for (const engine of ENGINES) {
       try {
         let url = `${engine}${endpoint}`;
-        
-        // Adjust endpoint for local pipeline vs piped
-        if (engine.includes('localhost')) {
+        const isInternalApi = engine.includes('localhost') || engine === '/api';
+
+        if (isInternalApi) {
           if (endpoint.startsWith('/search')) {
             url = `${engine}/search${endpoint.split('/search')[1]}`;
           } else if (endpoint.startsWith('/streams/')) {
             const videoId = endpoint.split('/streams/')[1];
-            // Local pipeline doesn't return stream metadata, it streams directly
-            return { isLocalStream: true, videoId };
+            return { isLocalStream: true, videoId, baseEngine: engine };
           }
         }
 
         const res = await axios.get(url, { timeout: 15000 });
-        setActiveEngine(engine); 
+        setActiveEngine(engine);
         return res.data;
       } catch (err) {
         console.warn(`Engine ${engine} failed, rotating...`);
@@ -90,7 +88,6 @@ function App() {
     }
     throw new Error("ALL ENGINES OFFLINE");
   };
-
   // --- SPOTIFY OAUTH2 PKCE ---
   const loginToSpotify = async () => {
     const verifier = generateRandomString(64);
@@ -155,7 +152,7 @@ function App() {
       
       let streamUrl;
       if (data.isLocalStream) {
-        streamUrl = `http://localhost:5001/api/stream?id=${data.videoId}`;
+        streamUrl = `${data.baseEngine}/stream?id=${data.videoId}`;
       } else {
         const stream = data.audioStreams.find(s => s.format === 'M4A') || data.audioStreams[0];
         streamUrl = stream.url;
