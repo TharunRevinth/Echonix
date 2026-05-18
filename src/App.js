@@ -30,9 +30,8 @@ const SPOTIFY_CLIENT_ID = process.env.REACT_APP_SPOTIFY_CLIENT_ID;
 const REDIRECT_URI = process.env.REACT_APP_SPOTIFY_REDIRECT_URI || "https://localhost:3000";
 
 const ENGINES = [
-  window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-    ? "http://localhost:5001/api" 
-    : "https://echonix.onrender.com/api",
+  "http://localhost:5001/api",
+  "https://echonix.onrender.com/api",
   "https://pipedapi.syncpundit.io",
   "https://pipedapi.kavin.rocks",
   "https://piped-api.garudalinux.org",
@@ -66,7 +65,7 @@ function App() {
     for (const engine of ENGINES) {
       try {
         let url = `${engine}${endpoint}`;
-        const isInternalApi = engine.includes('localhost') || engine.includes('onrender.com');
+        const isInternalApi = engine.includes('localhost') || engine.includes('onrender.com') || engine === '/api';
 
         if (isInternalApi) {
           if (endpoint.startsWith('/search')) {
@@ -262,7 +261,7 @@ function App() {
   const HomeView = () => (
     <div className="view-content">
       <div className="top-navigation">
-        <h1 className="main-greeting">Good afternoon{spotifyUser ? `, \${spotifyUser.display_name.split(' ')[0]}` : ''}</h1>
+        <h1 className="main-greeting">Good afternoon{spotifyUser ? `, ${spotifyUser.display_name.split(' ')[0]}` : ''}</h1>
         {token ? (
           <div className="user-badge" onClick={logout}><User size={18} /><span>{spotifyUser?.display_name}</span></div>
         ) : (
@@ -295,9 +294,9 @@ function App() {
           </div>
         </div>
         <nav className="nav-links">
-          <div className={`nav-link \${currentView === 'home' ? 'active' : ''}`} onClick={() => setCurrentView('home')}><Home size={22} /> <span>Home</span></div>
-          <div className={`nav-link \${currentView === 'search' ? 'active' : ''}`} onClick={() => setCurrentView('search')}><Search size={22} /> <span>Search</span></div>
-          <div className={`nav-link \${currentView === 'library' ? 'active' : ''}`} onClick={() => setCurrentView('library')}><Library size={22} /> <span>Your Library</span></div>
+          <div className={`nav-link ${currentView === 'home' ? 'active' : ''}`} onClick={() => setCurrentView('home')}><Home size={22} /> <span>Home</span></div>
+          <div className={`nav-link ${currentView === 'search' ? 'active' : ''}`} onClick={() => setCurrentView('search')}><Search size={22} /> <span>Search</span></div>
+          <div className={`nav-link ${currentView === 'library' ? 'active' : ''}`} onClick={() => setCurrentView('library')}><Library size={22} /> <span>Your Library</span></div>
         </nav>
       </aside>
 
@@ -321,7 +320,7 @@ function App() {
         )}
       </main>
 
-      <div className={\`echo-drawer \${isAiPanelOpen ? 'open' : ''}\`}>
+      <div className={`echo-drawer ${isAiPanelOpen ? 'open' : ''}`}>
         <div className="drawer-header"><h2>ECHO ANALYZER</h2><Cpu size={24} color="var(--cassette-orange)" /></div>
         <div className="lyrics-vfd">{lyrics}</div>
         <button className="echo-activate-btn" onClick={explainLyrics}>ACTIVATE ECHO AI</button>
@@ -332,7 +331,7 @@ function App() {
         <div className="now-playing-deck">
           {currentTrack ? (
             <>
-              <div className={\`disc-container \${isPlaying ? 'spinning' : ''}\`}>
+              <div className={`disc-container ${isPlaying ? 'spinning' : ''}`}>
                 <img src={getImageUrl(currentTrack)} className="walkman-disc" alt="art" />
                 <div className="disc-spindle"></div>
               </div>
@@ -352,7 +351,7 @@ function App() {
         </div>
         <div className="playback-center">
           <div className="physical-buttons"><Shuffle size={18}/><SkipBack size={24}/><button className="play-trigger" onClick={() => setIsPlaying(!isPlaying)}>{isPlaying ? <Pause fill="black" /> : <Play fill="black" />}</button><SkipForward size={24}/><Repeat size={18}/></div>
-          <div className="analog-seek"><span className="vfd-time">{formatTime(currentTime)}</span><div className="seek-track"><div className="seek-fill" style={{ width: \`\${(currentTime/duration)*100}%\` }}></div></div><span className="vfd-time">{formatTime(duration)}</span></div>
+          <div className="analog-seek"><span className="vfd-time">{formatTime(currentTime)}</span><div className="seek-track"><div className="seek-fill" style={{ width: `${(currentTime/duration)*100}%` }}></div></div><span className="vfd-time">{formatTime(duration)}</span></div>
         </div>
         <div className="utility-deck"><Mic2 onClick={()=>setIsAiPanelOpen(!isAiPanelOpen)}/><Volume2 /></div>
         <audio 
