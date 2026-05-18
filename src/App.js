@@ -27,9 +27,10 @@ const base64encode = (input) => {
 // --- CONFIGURATION & ENGINES ---
 const GEMINI_KEY = process.env.REACT_APP_GEMINI_KEY;
 const SPOTIFY_CLIENT_ID = process.env.REACT_APP_SPOTIFY_CLIENT_ID;
-const REDIRECT_URI = process.env.REACT_APP_SPOTIFY_REDIRECT_URI || "https://localhost:3000";
+const REDIRECT_URI = process.env.REACT_APP_SPOTIFY_REDIRECT_URI || "http://localhost:3000";
 
 const ENGINES = [
+  "/api",
   "http://localhost:5001/api",
   "https://echonix.onrender.com/api",
   "https://pipedapi.syncpundit.io",
@@ -156,16 +157,15 @@ function App() {
 
   const playTrack = async (track) => {
     try {
-      const videoId = track.url.split('v=')[1];
+      const videoId = track.id || track.url?.split('v=')[1];
       const { data, engine } = await fetchWithFallback(`/streams/${videoId}`);
       
       let streamUrl;
       if (data.isLocalStream) {
-        const base = engine.endsWith('/') ? engine.slice(0, -1) : engine;
-        streamUrl = `${base}/stream?id=${data.videoId}`;
+        streamUrl = `${engine}/stream?id=${videoId}`;
       } else {
-        const stream = data.audioStreams.find(s => s.format === 'M4A') || data.audioStreams[0];
-        streamUrl = stream.url;
+        const stream = data.audioStreams?.find(s => s.format === 'M4A') || data.audioStreams?.[0];
+        streamUrl = stream?.url;
       }
 
       setCurrentTrack({ ...track, streamUrl, engine });
@@ -190,8 +190,7 @@ function App() {
       .replace(/full video.*/gi, '')
       .replace(/lyric video.*/gi, '')
       .replace(/official video.*/gi, '')
-      .replace(/\|.*/gi, '')
-      .replace(/-.*/gi, '')
+      .replace(/\|.*/gi, '') // Keep dash cleaning separate or remove it
       .replace(/ft\..*/gi, '')
       .replace(/feat\..*/gi, '')
       .trim();
