@@ -15,6 +15,7 @@ app.get('/api/search', async (req, res) => {
         '--no-playlist',
         '--flat-playlist',
         '--dump-json',
+        '--no-check-certificates',
         `ytsearch10:${query}`
     ]);
 
@@ -72,6 +73,9 @@ app.get('/api/stream', (req, res) => {
 
     const ytDlpProcess = spawn('yt-dlp', [
         '--no-playlist',
+        '--no-check-certificates',
+        '--geo-bypass',
+        '--js-runtime', 'node',
         '-f', 'ba[ext=m4a]/ba',
         '--no-part',
         '--no-cache-dir',
@@ -82,18 +86,7 @@ app.get('/api/stream', (req, res) => {
 
     ytDlpProcess.stdout.pipe(res);
 
-    ytDlpProcess.stderr.on('data', (data) => {
-        console.error(`yt-dlp error: ${data}`);
-    });
-
-    ytDlpProcess.on('close', (code) => {
-        if (code !== 0) {
-            console.error(`yt-dlp process exited with code ${code}`);
-        }
-    });
-
     ytDlpProcess.on('error', (err) => {
-        console.error(`yt-dlp spawn error: ${err}`);
         res.status(500).end();
     });
 
