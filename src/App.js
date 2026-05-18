@@ -30,9 +30,7 @@ const SPOTIFY_CLIENT_ID = process.env.REACT_APP_SPOTIFY_CLIENT_ID;
 const REDIRECT_URI = process.env.REACT_APP_SPOTIFY_REDIRECT_URI || "http://localhost:3000";
 
 const ENGINES = [
-  "/api",
   "http://localhost:5001/api",
-  "https://echonix.onrender.com/api",
   "https://pipedapi.syncpundit.io",
   "https://pipedapi.kavin.rocks",
   "https://piped-api.garudalinux.org",
