@@ -34,8 +34,7 @@ const REDIRECT_URI = process.env.REACT_APP_SPOTIFY_REDIRECT_URI || "https://loca
 const ENGINES = [
   window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
     ? "http://localhost:5001/api" 
-    : "/api",
-  "https://echonix.onrender.com/api",
+    : "https://echonix.onrender.com/api",
   "https://pipedapi.syncpundit.io",
   "https://pipedapi.kavin.rocks",
   "https://piped-api.garudalinux.org",
@@ -186,15 +185,17 @@ function App() {
     return str
       .replace(/\(official video\)/gi, '')
       .replace(/\(lyrics\)/gi, '')
+      .replace(/\(lyric video\)/gi, '')
       .replace(/\[official audio\]/gi, '')
       .replace(/\(official audio\)/gi, '')
       .replace(/\[lyrics\]/gi, '')
       .replace(/\(hd\)/gi, '')
       .replace(/\(4k\)/gi, '')
       .replace(/full video.*/gi, '')
+      .replace(/lyric video.*/gi, '')
       .replace(/official video.*/gi, '')
-      .replace(/|.*/gi, '') // Remove everything after a pipe
-      .replace(/-.*/gi, '') // Remove everything after a dash (often uploader name)
+      .replace(/\|.*/gi, '') // Correctly escape the pipe character
+      .replace(/-.*/gi, '') // Remove everything after a dash
       .replace(/ft\..*/gi, '')
       .replace(/feat\..*/gi, '')
       .trim();
@@ -389,7 +390,18 @@ function App() {
           <div className="analog-seek"><span className="vfd-time">{formatTime(currentTime)}</span><div className="seek-track"><div className="seek-fill" style={{ width: `${(currentTime/duration)*100}%` }}></div></div><span className="vfd-time">{formatTime(duration)}</span></div>
         </div>
         <div className="utility-deck"><Mic2 onClick={()=>setIsAiPanelOpen(!isAiPanelOpen)}/><Volume2 /></div>
-        <audio ref={audioRef} src={currentTrack?.streamUrl} autoPlay crossOrigin="anonymous" onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onTimeUpdate={(e)=>setCurrentTime(e.target.currentTime)} onLoadedMetadata={(e)=>setDuration(e.target.duration)}/>
+        <audio 
+          ref={audioRef} 
+          src={currentTrack?.streamUrl} 
+          autoPlay 
+          preload="auto"
+          playsInline
+          crossOrigin="anonymous" 
+          onPlay={() => setIsPlaying(true)} 
+          onPause={() => setIsPlaying(false)} 
+          onTimeUpdate={(e)=>setCurrentTime(e.target.currentTime)} 
+          onLoadedMetadata={(e)=>setDuration(e.target.duration)}
+        />
       </footer>
     </div>
   );

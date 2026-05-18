@@ -69,8 +69,8 @@ app.get('/api/stream', (req, res) => {
 
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-    // Set appropriate headers for live audio streaming
-    res.setHeader('Content-Type', 'audio/mpeg');
+    // M4A is the preferred format, which is audio/mp4
+    res.setHeader('Content-Type', 'audio/mp4');
     res.setHeader('Transfer-Encoding', 'chunked');
 
     const ytDlpProcess = spawn('yt-dlp', [

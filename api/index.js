@@ -68,8 +68,9 @@ app.get('/api/stream', (req, res) => {
 
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-    // Force MP3 for better browser compatibility
-    res.setHeader('Content-Type', 'audio/mpeg');
+    // M4A is the preferred format, which is audio/mp4
+    res.setHeader('Content-Type', 'audio/mp4');
+    res.setHeader('Transfer-Encoding', 'chunked');
 
     const ytDlpProcess = spawn('yt-dlp', [
         '--no-playlist',
