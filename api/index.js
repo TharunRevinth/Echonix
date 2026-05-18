@@ -68,22 +68,32 @@ app.get('/api/stream', (req, res) => {
 
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-    // M4A is the preferred format, which is audio/mp4
     res.setHeader('Content-Type', 'audio/mp4');
-    res.setHeader('Transfer-Encoding', 'chunked');
 
     const ytDlpProcess = spawn('yt-dlp', [
         '--no-playlist',
-        '-f', 'ba[ext=m4a]/ba', // Prefer M4A for faster extraction
+        '-f', 'ba[ext=m4a]/ba',
         '--no-part',
         '--no-cache-dir',
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         '-o', '-',
         youtubeUrl
     ]);
 
     ytDlpProcess.stdout.pipe(res);
 
+    ytDlpProcess.stderr.on('data', (data) => {
+        console.error(`yt-dlp error: ${data}`);
+    });
+
+    ytDlpProcess.on('close', (code) => {
+        if (code !== 0) {
+            console.error(`yt-dlp process exited with code ${code}`);
+        }
+    });
+
     ytDlpProcess.on('error', (err) => {
+        console.error(`yt-dlp spawn error: ${err}`);
         res.status(500).end();
     });
 

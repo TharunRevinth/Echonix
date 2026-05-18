@@ -396,7 +396,6 @@ function App() {
           autoPlay 
           preload="auto"
           playsInline
-          crossOrigin="anonymous" 
           onPlay={() => setIsPlaying(true)} 
           onPause={() => setIsPlaying(false)} 
           onTimeUpdate={(e)=>setCurrentTime(e.target.currentTime)} 
