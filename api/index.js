@@ -68,12 +68,12 @@ app.get('/api/stream', (req, res) => {
 
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-    // We use a generic audio content type to be safe
+    // Force MP3 for better browser compatibility
     res.setHeader('Content-Type', 'audio/mpeg');
 
     const ytDlpProcess = spawn('yt-dlp', [
         '--no-playlist',
-        '-f', 'ba',
+        '-f', 'ba[ext=m4a]/ba', // Prefer M4A for faster extraction
         '--no-part',
         '--no-cache-dir',
         '-o', '-',

@@ -191,6 +191,10 @@ function App() {
       .replace(/\[lyrics\]/gi, '')
       .replace(/\(hd\)/gi, '')
       .replace(/\(4k\)/gi, '')
+      .replace(/full video.*/gi, '')
+      .replace(/official video.*/gi, '')
+      .replace(/|.*/gi, '') // Remove everything after a pipe
+      .replace(/-.*/gi, '') // Remove everything after a dash (often uploader name)
       .replace(/ft\..*/gi, '')
       .replace(/feat\..*/gi, '')
       .trim();

@@ -75,7 +75,7 @@ app.get('/api/stream', (req, res) => {
 
     const ytDlpProcess = spawn('yt-dlp', [
         '--no-playlist',
-        '-f', 'ba',
+        '-f', 'ba[ext=m4a]/ba',
         '--no-part',
         '--no-cache-dir',
         '-o', '-',
