@@ -76,13 +76,13 @@ function App() {
             url = `${engine}/search${endpoint.split('/search')[1]}`;
           } else if (endpoint.startsWith('/streams/')) {
             const videoId = endpoint.split('/streams/')[1];
-            return { isLocalStream: true, videoId, baseEngine: engine };
+            return { data: { isLocalStream: true, videoId }, engine };
           }
         }
 
         const res = await axios.get(url, { timeout: 15000 });
         setActiveEngine(engine);
-        return res.data;
+        return { data: res.data, engine };
       } catch (err) {
         console.warn(`Engine ${engine} failed, rotating...`);
       }
@@ -142,16 +142,16 @@ function App() {
     if (!query) return;
     setCurrentView('search');
     try {
-      const results = await fetchWithFallback(`/search?q=${encodeURIComponent(query)}&filter=music_songs`);
-      // Tag results with the base engine that successfully served them
-      const taggedResults = results.items.map(item => ({ ...item, engine: activeEngine }));
+      const { data, engine } = await fetchWithFallback(`/search?q=${encodeURIComponent(query)}&filter=music_songs`);
+      const taggedResults = data.items.map(item => ({ ...item, engine }));
       setSearchResults(taggedResults);
     } catch (err) { alert("ERROR: SEARCH ENGINE OFFLINE"); }
   };
 
   useEffect(() => {
-    if (audioRef.current) {
+    if (audioRef.current && currentTrack?.streamUrl) {
       if (isPlaying) {
+        audioRef.current.load(); // Force reload for new source
         audioRef.current.play().catch(e => console.error("Playback failed", e));
       } else {
         audioRef.current.pause();
@@ -162,21 +162,18 @@ function App() {
   const playTrack = async (track) => {
     try {
       const videoId = track.url.split('v=')[1];
-      const data = await fetchWithFallback(`/streams/${videoId}`);
+      const { data, engine } = await fetchWithFallback(`/streams/${videoId}`);
       
       let streamUrl;
-      const trackEngine = data.baseEngine || activeEngine;
-
       if (data.isLocalStream) {
-        // Construct correct path for local pipeline
-        const base = trackEngine.endsWith('/') ? trackEngine.slice(0, -1) : trackEngine;
+        const base = engine.endsWith('/') ? engine.slice(0, -1) : engine;
         streamUrl = `${base}/stream?id=${data.videoId}`;
       } else {
         const stream = data.audioStreams.find(s => s.format === 'M4A') || data.audioStreams[0];
         streamUrl = stream.url;
       }
 
-      setCurrentTrack({ ...track, streamUrl, engine: trackEngine });
+      setCurrentTrack({ ...track, streamUrl, engine });
       setIsPlaying(true);
       fetchLyrics(track.title, track.uploaderName);
       fetchArtistInfo(track.uploaderName);
@@ -320,7 +317,13 @@ function App() {
   return (
     <div className="echonix-app">
       <aside className="hardware-sidebar">
-        <div className="branding"><div className="logo">echonix</div><div className="system-status">ENGINE ACTIVE</div></div>
+        <div className="branding">
+          <div className="logo">echonix</div>
+          <div className="system-status" style={{ color: activeEngine.includes('localhost') ? 'var(--analog-blue)' : 'var(--cassette-orange)' }}>
+            {activeEngine.includes('localhost') ? 'LOCAL_PIPELINE' : 
+             activeEngine.includes('onrender') ? 'RENDER_CLOUD' : 'PIPED_BACKUP'}
+          </div>
+        </div>
         <nav className="nav-links">
           <div className={`nav-link ${currentView === 'home' ? 'active' : ''}`} onClick={() => setCurrentView('home')}><Home size={22} /> <span>Home</span></div>
           <div className={`nav-link ${currentView === 'search' ? 'active' : ''}`} onClick={() => setCurrentView('search')}><Search size={22} /> <span>Search</span></div>
