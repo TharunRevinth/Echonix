@@ -2,16 +2,20 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const { spawn } = require('child_process');
+const youtubeDl = require('youtube-dl-exec');
 const app = express();
 const PORT = process.env.PORT || 5001;
 
 app.use(cors());
 
+// Use youtube-dl-exec to find the binary path
+const YT_DLP_PATH = youtubeDl.create(process.cwd()).path || 'yt-dlp';
+
 const PIPED = ["https://pipedapi.syncpundit.io", "https://pipedapi.kavin.rocks", "https://piped-api.garudalinux.org"];
 
 app.get('/api/search', (req, res) => {
     const query = req.query.q;
-    const ytDlpProcess = spawn('yt-dlp', ['--no-playlist', '--flat-playlist', '--dump-json', `ytsearch10:${query}`]);
+    const ytDlpProcess = spawn(YT_DLP_PATH, ['--no-playlist', '--flat-playlist', '--dump-json', `ytsearch10:${query}`]);
     let output = '';
     ytDlpProcess.stdout.on('data', (d) => { output += d.toString(); });
     ytDlpProcess.on('close', async (code) => {
@@ -53,6 +57,7 @@ app.get('/api/stream', async (req, res) => {
     const startFallback = async () => {
         if (fallbackTriggered) return;
         fallbackTriggered = true;
+        console.log(`Fallback triggered for video: ${id}`);
         for (const instance of PIPED) {
             try {
                 const s = await axios.get(`${instance}/streams/${id}`);
@@ -60,39 +65,47 @@ app.get('/api/stream', async (req, res) => {
                 if (stream && stream.url) {
                     const d = await axios.get(stream.url, { responseType: 'stream' });
                     if (!res.headersSent) {
-                        res.setHeader('Content-Type', d.headers['content-type'] || 'audio/mpeg');
+                        res.setHeader('Content-Type', d.headers['content-type'] || 'audio/mp4');
                     }
                     return d.data.pipe(res);
                 }
-            } catch (err) {}
+            } catch (err) {
+                console.error(`Fallback engine ${instance} failed`);
+            }
         }
         if (!res.headersSent) res.status(500).end();
     };
 
-    const y = spawn('yt-dlp', ['-f', 'ba[ext=m4a]/ba', '-o', '-', `https://www.youtube.com/watch?v=${id}`]);
-    
-    y.stdout.on('data', () => {
-        if (!res.headersSent) res.setHeader('Content-Type', 'audio/mp4');
-    });
+    try {
+        const y = spawn(YT_DLP_PATH, ['-f', 'ba[ext=m4a]/ba', '-o', '-', `https://www.youtube.com/watch?v=${id}`]);
+        
+        y.stdout.on('data', () => {
+            if (!res.headersSent) res.setHeader('Content-Type', 'audio/mp4');
+        });
 
-    y.stdout.pipe(res, { end: false });
-    
-    y.on('error', (err) => {
-        console.error("yt-dlp spawn error:", err);
-        startFallback();
-    });
-
-    y.on('close', (code) => {
-        if (code !== 0) {
+        y.stdout.pipe(res, { end: false });
+        
+        y.on('error', (err) => {
+            console.error("yt-dlp spawn error:", err);
             startFallback();
-        } else {
-            res.end();
-        }
-    });
+        });
 
-    req.on('close', () => {
-        y.kill();
-    });
+        y.on('close', (code) => {
+            if (code !== 0) {
+                console.warn(`yt-dlp exited with code ${code}`);
+                startFallback();
+            } else {
+                res.end();
+            }
+        });
+
+        req.on('close', () => {
+            y.kill();
+        });
+    } catch (e) {
+        console.error("Stream route error:", e);
+        startFallback();
+    }
 });
 
 app.listen(PORT, '0.0.0.0', () => console.log(`Running on http://0.0.0.0:${PORT}`));
