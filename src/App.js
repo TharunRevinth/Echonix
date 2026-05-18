@@ -35,7 +35,7 @@ const ENGINES = [
   window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
     ? "http://localhost:5001/api" 
     : "/api",
-  "https://YOUR-RENDER-APP-NAME.onrender.com/api",
+  "https://echonix.onrender.com/api",
   "https://pipedapi.syncpundit.io",
   "https://pipedapi.kavin.rocks",
   "https://piped-api.garudalinux.org",
@@ -57,7 +57,6 @@ function App() {
   const [token, setToken] = useState(window.localStorage.getItem("spotify_token") || "");
   const [spotifyUser, setSpotifyUser] = useState(null);
   const [spotifyPlaylists, setSpotifyPlaylists] = useState([]);
-  const [customEngine, setCustomEngine] = useState(() => localStorage.getItem('custom_engine') || "");
 
   const audioRef = useRef(null);
   const [likedSongs, setLikedSongs] = useState(() => JSON.parse(localStorage.getItem('likedSongs') || '[]'));
@@ -67,14 +66,10 @@ function App() {
 
   // --- ENGINE ROTATION LOGIC ---
   const fetchWithFallback = async (endpoint) => {
-    const activeEngines = customEngine 
-      ? [customEngine, ...ENGINES] 
-      : ENGINES;
-
-    for (const engine of activeEngines) {
+    for (const engine of ENGINES) {
       try {
         let url = `${engine}${endpoint}`;
-        const isInternalApi = engine.includes('localhost') || engine === '/api' || engine === customEngine;
+        const isInternalApi = engine.includes('localhost') || engine === '/api' || engine.includes('onrender.com');
 
         if (isInternalApi) {
           if (endpoint.startsWith('/search')) {
@@ -94,6 +89,7 @@ function App() {
     }
     throw new Error("ALL ENGINES OFFLINE");
   };
+
   // --- SPOTIFY OAUTH2 PKCE ---
   const loginToSpotify = async () => {
     const verifier = generateRandomString(64);
@@ -264,6 +260,14 @@ function App() {
     else setLikedSongs([...likedSongs, track]);
   };
 
+  const getImageUrl = (url) => {
+    if (!url) return "";
+    if (url.startsWith('http')) return url;
+    // Resolve relative proxy paths against the active engine
+    const base = activeEngine.endsWith('/') ? activeEngine.slice(0, -1) : activeEngine;
+    return `${base}${url}`;
+  };
+
   // --- VIEWS ---
   const HomeView = () => (
     <div className="view-content">
@@ -308,22 +312,11 @@ function App() {
             <div className="search-hardware">
               <Search color="var(--cassette-orange)" />
               <input placeholder="SCAN VIBES..." value={query} onChange={(e)=>setQuery(e.target.value)} onKeyDown={(e)=>e.key==='Enter'&&handleSearch()}/>
-              <input 
-                type="text" 
-                placeholder="CUSTOM PIPELINE (URL)..." 
-                className="custom-engine-input"
-                style={{ marginLeft: '10px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--cassette-orange)', borderRadius: '4px', color: 'white', padding: '5px 10px', fontSize: '10px', width: '200px' }}
-                value={customEngine}
-                onChange={(e) => {
-                  setCustomEngine(e.target.value);
-                  localStorage.setItem('custom_engine', e.target.value);
-                }}
-              />
             </div>
             <div className="shelf-grid">
               {searchResults.map((s, i) => (
                 <div key={i} className="hardware-card" onClick={() => playTrack(s)}>
-                  <div className="card-image"><img src={s.thumbnail} alt="art" /></div>
+                  <div className="card-image"><img src={getImageUrl(s.thumbnail)} alt="art" /></div>
                   <h4>{s.title}</h4>
                 </div>
               ))}
@@ -344,7 +337,7 @@ function App() {
           {currentTrack ? (
             <>
               <div className={`disc-container ${isPlaying ? 'spinning' : ''}`}>
-                <img src={currentTrack.thumbnail} className="walkman-disc" alt="art" />
+                <img src={getImageUrl(currentTrack.thumbnail)} className="walkman-disc" alt="art" />
                 <div className="disc-spindle"></div>
               </div>
               <div className="deck-meta">
