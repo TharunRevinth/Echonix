@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
 import { 
-  Play, Pause, SkipForward, SkipBack, Search, 
-  Home, Library, Heart, Sparkles, Mic2, 
-  Maximize2, Volume2, ListMusic, Clock, Zap, Cpu, Activity,
-  ChevronLeft, ChevronRight, User, PlusCircle, MoreHorizontal,
-  Music2, Disc, Repeat, Shuffle, LogIn, ExternalLink
+  Search, Play, Pause, SkipForward, SkipBack, Heart, 
+  Volume2, Shuffle, Repeat, Library, Home, User, Mic2, Cpu
 } from 'lucide-react';
+import axios from 'axios';
+import './styles.css';
 
-// --- PKCE UTILS ---
+// --- UTILS ---
 const generateRandomString = (length) => {
   const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   const values = crypto.getRandomValues(new Uint8Array(length));
@@ -34,8 +32,8 @@ const REDIRECT_URI = process.env.REACT_APP_SPOTIFY_REDIRECT_URI || "https://loca
 const ENGINES = [
   window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
     ? "http://localhost:5001/api" 
-    : "https://pipedapi.syncpundit.io",
-  "https://echonix.onrender.com/api",
+    : "https://echonix.onrender.com/api",
+  "https://pipedapi.syncpundit.io",
   "https://pipedapi.kavin.rocks",
   "https://piped-api.garudalinux.org",
   "https://api.piped.victr.me"
@@ -68,7 +66,7 @@ function App() {
     for (const engine of ENGINES) {
       try {
         let url = `${engine}${endpoint}`;
-        const isInternalApi = engine.includes('localhost') || engine === '/api' || engine.includes('onrender.com');
+        const isInternalApi = engine.includes('localhost') || engine.includes('onrender.com');
 
         if (isInternalApi) {
           if (endpoint.startsWith('/search')) {
@@ -150,7 +148,6 @@ function App() {
   useEffect(() => {
     if (audioRef.current && currentTrack?.streamUrl) {
       if (isPlaying) {
-        audioRef.current.load(); // Force reload for new source
         audioRef.current.play().catch(e => console.error("Playback failed", e));
       } else {
         audioRef.current.pause();
@@ -194,8 +191,8 @@ function App() {
       .replace(/full video.*/gi, '')
       .replace(/lyric video.*/gi, '')
       .replace(/official video.*/gi, '')
-      .replace(/\|.*/gi, '') // Correctly escape the pipe character
-      .replace(/-.*/gi, '') // Remove everything after a dash
+      .replace(/\|.*/gi, '')
+      .replace(/-.*/gi, '')
       .replace(/ft\..*/gi, '')
       .replace(/feat\..*/gi, '')
       .trim();
@@ -214,32 +211,11 @@ function App() {
   const fetchLyrics = async (t, a) => {
     const cleanT = cleanString(t);
     const cleanA = cleanString(a);
-    
     setLyrics("SCANNING TAPE...");
-
     try {
-      // Source 1: LRCLIB
-      const res = await axios.get(`https://lrclib.net/api/search?artist_name=${encodeURIComponent(cleanA)}&track_name=${encodeURIComponent(cleanT)}`);
-      const found = res.data.find(track => track.plainLyrics || track.syncedLyrics);
-      if (found) {
-        setLyrics(found.plainLyrics || found.syncedLyrics);
-        return;
-      }
-    } catch (e) {
-      console.warn("LRCLIB failed or no match.");
-    }
-
-    try {
-      // Source 2: Lyrics.ovh
-      const ovhRes = await axios.get(`https://api.lyrics.ovh/v1/${encodeURIComponent(cleanA)}/${encodeURIComponent(cleanT)}`);
-      if (ovhRes.data.lyrics) {
-        setLyrics(ovhRes.data.lyrics);
-        return;
-      }
-    } catch (e) {
-      console.warn("Lyrics.ovh failed or 404.");
-    }
-
+      const res = await axios.get(`https://api.lyrics.ovh/v1/${encodeURIComponent(cleanA)}/${encodeURIComponent(cleanT)}`);
+      if (res.data.lyrics) { setLyrics(res.data.lyrics); return; }
+    } catch (e) {}
     setLyrics("NO TAPE DATA FOUND.");
   };
 
@@ -248,23 +224,17 @@ function App() {
       setExplanation("SCANNING FOR DATA... NO ANALYZABLE TAPE DETECTED.");
       return;
     }
-    
     setExplanation("ACTIVATING ECHO AI ANALYZER...");
-    
     try {
       const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_KEY}`, {
         contents: [{ parts: [{ text: `Act as a retro music analyzer. Explain the meaning and vibe of these lyrics in 3 punchy, technical points: ${lyrics}` }] }]
       });
-      
       if (res.data.candidates?.[0]?.content?.parts?.[0]?.text) {
         setExplanation(res.data.candidates[0].content.parts[0].text);
       } else {
         setExplanation("AI ANALYSIS ERROR: SYSTEM RETURNED NULL.");
       }
-    } catch (e) {
-      console.error("Echo AI Error:", e.response?.data || e.message);
-      setExplanation(`AI OFFLINE: ${e.response?.status || '500 ERROR'}`);
-    }
+    } catch (e) { setExplanation(`AI OFFLINE: ${e.response?.status || '500 ERROR'}`); }
   };
 
   const formatTime = (t) => {
@@ -283,45 +253,16 @@ function App() {
     const url = typeof trackOrUrl === 'string' ? trackOrUrl : trackOrUrl.thumbnail;
     if (!url) return "";
     if (url.startsWith('http')) return url;
-
     const targetEngine = trackOrUrl.engine || activeEngine;
-    // Remove /api from the engine if the url already starts with /api to avoid double /api/api
     let base = targetEngine.endsWith('/') ? targetEngine.slice(0, -1) : targetEngine;
-    if (url.startsWith('/api') && base.endsWith('/api')) {
-      base = base.slice(0, -4);
-    }
+    if (url.startsWith('/api') && base.endsWith('/api')) base = base.slice(0, -4);
     return `${base}${url}`;
   };
 
-  const handleAudioError = async () => {
-    console.warn("Audio stream failed. Attempting fallback...");
-    if (!currentTrack) return;
-
-    // Try to find a different engine that isn't the one that just failed
-    const currentEngine = currentTrack.engine;
-    const fallbackEngine = ENGINES.find(e => e !== currentEngine && !e.includes('localhost'));
-
-    if (fallbackEngine) {
-      try {
-        const videoId = currentTrack.url.split('v=')[1];
-        // Fetch from the fallback engine
-        const res = await axios.get(`${fallbackEngine}/streams/${videoId}`);
-        const stream = res.data.audioStreams.find(s => s.format === 'M4A') || res.data.audioStreams[0];
-        
-        console.log(`Switched to fallback engine: ${fallbackEngine}`);
-        setCurrentTrack({ ...currentTrack, streamUrl: stream.url, engine: fallbackEngine });
-      } catch (err) {
-        console.error("All fallback engines failed.");
-        alert("CRITICAL: DATA CORRUPTION OR ALL ENGINES OFFLINE.");
-      }
-    }
-  };
-
-  // --- VIEWS ---
   const HomeView = () => (
     <div className="view-content">
       <div className="top-navigation">
-        <h1 className="main-greeting">Good afternoon{spotifyUser ? `, ${spotifyUser.display_name.split(' ')[0]}` : ''}</h1>
+        <h1 className="main-greeting">Good afternoon{spotifyUser ? `, \${spotifyUser.display_name.split(' ')[0]}` : ''}</h1>
         {token ? (
           <div className="user-badge" onClick={logout}><User size={18} /><span>{spotifyUser?.display_name}</span></div>
         ) : (
@@ -354,9 +295,9 @@ function App() {
           </div>
         </div>
         <nav className="nav-links">
-          <div className={`nav-link ${currentView === 'home' ? 'active' : ''}`} onClick={() => setCurrentView('home')}><Home size={22} /> <span>Home</span></div>
-          <div className={`nav-link ${currentView === 'search' ? 'active' : ''}`} onClick={() => setCurrentView('search')}><Search size={22} /> <span>Search</span></div>
-          <div className={`nav-link ${currentView === 'library' ? 'active' : ''}`} onClick={() => setCurrentView('library')}><Library size={22} /> <span>Your Library</span></div>
+          <div className={`nav-link \${currentView === 'home' ? 'active' : ''}`} onClick={() => setCurrentView('home')}><Home size={22} /> <span>Home</span></div>
+          <div className={`nav-link \${currentView === 'search' ? 'active' : ''}`} onClick={() => setCurrentView('search')}><Search size={22} /> <span>Search</span></div>
+          <div className={`nav-link \${currentView === 'library' ? 'active' : ''}`} onClick={() => setCurrentView('library')}><Library size={22} /> <span>Your Library</span></div>
         </nav>
       </aside>
 
@@ -380,7 +321,7 @@ function App() {
         )}
       </main>
 
-      <div className={`echo-drawer ${isAiPanelOpen ? 'open' : ''}`}>
+      <div className={\`echo-drawer \${isAiPanelOpen ? 'open' : ''}\`}>
         <div className="drawer-header"><h2>ECHO ANALYZER</h2><Cpu size={24} color="var(--cassette-orange)" /></div>
         <div className="lyrics-vfd">{lyrics}</div>
         <button className="echo-activate-btn" onClick={explainLyrics}>ACTIVATE ECHO AI</button>
@@ -391,7 +332,7 @@ function App() {
         <div className="now-playing-deck">
           {currentTrack ? (
             <>
-              <div className={`disc-container ${isPlaying ? 'spinning' : ''}`}>
+              <div className={\`disc-container \${isPlaying ? 'spinning' : ''}\`}>
                 <img src={getImageUrl(currentTrack)} className="walkman-disc" alt="art" />
                 <div className="disc-spindle"></div>
               </div>
@@ -411,7 +352,7 @@ function App() {
         </div>
         <div className="playback-center">
           <div className="physical-buttons"><Shuffle size={18}/><SkipBack size={24}/><button className="play-trigger" onClick={() => setIsPlaying(!isPlaying)}>{isPlaying ? <Pause fill="black" /> : <Play fill="black" />}</button><SkipForward size={24}/><Repeat size={18}/></div>
-          <div className="analog-seek"><span className="vfd-time">{formatTime(currentTime)}</span><div className="seek-track"><div className="seek-fill" style={{ width: `${(currentTime/duration)*100}%` }}></div></div><span className="vfd-time">{formatTime(duration)}</span></div>
+          <div className="analog-seek"><span className="vfd-time">{formatTime(currentTime)}</span><div className="seek-track"><div className="seek-fill" style={{ width: \`\${(currentTime/duration)*100}%\` }}></div></div><span className="vfd-time">{formatTime(duration)}</span></div>
         </div>
         <div className="utility-deck"><Mic2 onClick={()=>setIsAiPanelOpen(!isAiPanelOpen)}/><Volume2 /></div>
         <audio 
@@ -422,7 +363,6 @@ function App() {
           playsInline
           onPlay={() => setIsPlaying(true)} 
           onPause={() => setIsPlaying(false)} 
-          onError={handleAudioError}
           onTimeUpdate={(e)=>setCurrentTime(e.target.currentTime)} 
           onLoadedMetadata={(e)=>setDuration(e.target.duration)}
         />
