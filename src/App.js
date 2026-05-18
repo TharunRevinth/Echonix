@@ -27,10 +27,16 @@ const base64encode = (input) => {
 // --- CONFIGURATION & ENGINES ---
 const GEMINI_KEY = process.env.REACT_APP_GEMINI_KEY;
 const SPOTIFY_CLIENT_ID = process.env.REACT_APP_SPOTIFY_CLIENT_ID;
-const REDIRECT_URI = process.env.REACT_APP_SPOTIFY_REDIRECT_URI || "http://localhost:3000";
+
+const getHost = () => {
+  const host = window.location.hostname;
+  return host === 'localhost' ? 'localhost' : host;
+};
+
+const REDIRECT_URI = process.env.REACT_APP_SPOTIFY_REDIRECT_URI || `http://${getHost()}:3000`;
 
 const ENGINES = [
-  "http://localhost:5001/api",
+  `http://${getHost()}:5001/api`,
   "https://pipedapi.syncpundit.io",
   "https://pipedapi.kavin.rocks",
   "https://piped-api.garudalinux.org",
