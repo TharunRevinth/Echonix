@@ -34,8 +34,8 @@ const REDIRECT_URI = process.env.REACT_APP_SPOTIFY_REDIRECT_URI || "https://loca
 const ENGINES = [
   window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
     ? "http://localhost:5001/api" 
-    : "https://echonix.onrender.com/api",
-  "https://pipedapi.syncpundit.io",
+    : "https://pipedapi.syncpundit.io",
+  "https://echonix.onrender.com/api",
   "https://pipedapi.kavin.rocks",
   "https://piped-api.garudalinux.org",
   "https://api.piped.victr.me"
@@ -293,6 +293,30 @@ function App() {
     return `${base}${url}`;
   };
 
+  const handleAudioError = async () => {
+    console.warn("Audio stream failed. Attempting fallback...");
+    if (!currentTrack) return;
+
+    // Try to find a different engine that isn't the one that just failed
+    const currentEngine = currentTrack.engine;
+    const fallbackEngine = ENGINES.find(e => e !== currentEngine && !e.includes('localhost'));
+
+    if (fallbackEngine) {
+      try {
+        const videoId = currentTrack.url.split('v=')[1];
+        // Fetch from the fallback engine
+        const res = await axios.get(`${fallbackEngine}/streams/${videoId}`);
+        const stream = res.data.audioStreams.find(s => s.format === 'M4A') || res.data.audioStreams[0];
+        
+        console.log(`Switched to fallback engine: ${fallbackEngine}`);
+        setCurrentTrack({ ...currentTrack, streamUrl: stream.url, engine: fallbackEngine });
+      } catch (err) {
+        console.error("All fallback engines failed.");
+        alert("CRITICAL: DATA CORRUPTION OR ALL ENGINES OFFLINE.");
+      }
+    }
+  };
+
   // --- VIEWS ---
   const HomeView = () => (
     <div className="view-content">
@@ -398,6 +422,7 @@ function App() {
           playsInline
           onPlay={() => setIsPlaying(true)} 
           onPause={() => setIsPlaying(false)} 
+          onError={handleAudioError}
           onTimeUpdate={(e)=>setCurrentTime(e.target.currentTime)} 
           onLoadedMetadata={(e)=>setDuration(e.target.duration)}
         />
