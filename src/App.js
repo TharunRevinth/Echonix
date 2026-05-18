@@ -35,6 +35,7 @@ const ENGINES = [
   window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
     ? "http://localhost:5001/api" 
     : "/api",
+  "https://YOUR-RENDER-APP-NAME.onrender.com/api",
   "https://pipedapi.syncpundit.io",
   "https://pipedapi.kavin.rocks",
   "https://piped-api.garudalinux.org",
@@ -56,6 +57,7 @@ function App() {
   const [token, setToken] = useState(window.localStorage.getItem("spotify_token") || "");
   const [spotifyUser, setSpotifyUser] = useState(null);
   const [spotifyPlaylists, setSpotifyPlaylists] = useState([]);
+  const [customEngine, setCustomEngine] = useState(() => localStorage.getItem('custom_engine') || "");
 
   const audioRef = useRef(null);
   const [likedSongs, setLikedSongs] = useState(() => JSON.parse(localStorage.getItem('likedSongs') || '[]'));
@@ -65,10 +67,14 @@ function App() {
 
   // --- ENGINE ROTATION LOGIC ---
   const fetchWithFallback = async (endpoint) => {
-    for (const engine of ENGINES) {
+    const activeEngines = customEngine 
+      ? [customEngine, ...ENGINES] 
+      : ENGINES;
+
+    for (const engine of activeEngines) {
       try {
         let url = `${engine}${endpoint}`;
-        const isInternalApi = engine.includes('localhost') || engine === '/api';
+        const isInternalApi = engine.includes('localhost') || engine === '/api' || engine === customEngine;
 
         if (isInternalApi) {
           if (endpoint.startsWith('/search')) {
@@ -299,7 +305,21 @@ function App() {
         {currentView === 'home' && <HomeView />}
         {currentView === 'search' && (
           <div className="view-content">
-            <div className="search-hardware"><Search color="var(--cassette-orange)" /><input placeholder="SCAN VIBES..." value={query} onChange={(e)=>setQuery(e.target.value)} onKeyDown={(e)=>e.key==='Enter'&&handleSearch()}/></div>
+            <div className="search-hardware">
+              <Search color="var(--cassette-orange)" />
+              <input placeholder="SCAN VIBES..." value={query} onChange={(e)=>setQuery(e.target.value)} onKeyDown={(e)=>e.key==='Enter'&&handleSearch()}/>
+              <input 
+                type="text" 
+                placeholder="CUSTOM PIPELINE (URL)..." 
+                className="custom-engine-input"
+                style={{ marginLeft: '10px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--cassette-orange)', borderRadius: '4px', color: 'white', padding: '5px 10px', fontSize: '10px', width: '200px' }}
+                value={customEngine}
+                onChange={(e) => {
+                  setCustomEngine(e.target.value);
+                  localStorage.setItem('custom_engine', e.target.value);
+                }}
+              />
+            </div>
             <div className="shelf-grid">
               {searchResults.map((s, i) => (
                 <div key={i} className="hardware-card" onClick={() => playTrack(s)}>
