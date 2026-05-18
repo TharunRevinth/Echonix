@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const youtubedl = require('youtube-dl-exec');
+const { spawn } = require('child_process');
 const app = express();
 
 app.use(cors());
@@ -11,37 +11,37 @@ app.get('/api/search', async (req, res) => {
     const query = req.query.q;
     if (!query) return res.status(400).json({ error: "Missing query" });
 
-    try {
-        // We use youtube-dl-exec to fetch search results as JSON
-        const output = await youtubedl(`ytsearch10:${query}`, {
-            dumpJson: true,
-            flatPlaylist: true,
-        });
+    const ytDlpProcess = spawn('yt-dlp', [
+        '--no-playlist',
+        '--flat-playlist',
+        '--dump-json',
+        `ytsearch10:${query}`
+    ]);
 
-        const results = Array.isArray(output) ? output : [output];
-        // Note: flat-playlist dump can be a single object or multiple
-        const entries = output.entries || results;
+    let output = '';
+    ytDlpProcess.stdout.on('data', (data) => {
+        output += data.toString();
+    });
 
-        const items = entries.map(item => {
-            const thumbnailUrl = item.thumbnail || (item.thumbnails && item.thumbnails[0]?.url);
-            return {
-                title: item.title,
-                uploaderName: item.uploader || item.channel,
-                thumbnail: thumbnailUrl ? `/api/proxy-image?url=${encodeURIComponent(thumbnailUrl)}` : null,
-                url: `https://www.youtube.com/watch?v=${item.id}`,
-                duration: item.duration,
-                id: item.id
-            };
-        });
-        res.json({ items });
-    } catch (error) {
-        console.error('Search error:', error);
-        res.status(500).json({ 
-            error: "Search failed", 
-            message: error.message,
-            hint: "If this is on Vercel, the binary might be missing. Ensure postinstall script runs or binary is included."
-        });
-    }
+    ytDlpProcess.on('close', () => {
+        try {
+            const results = output.trim().split('\n').filter(l => l).map(line => JSON.parse(line));
+            const items = results.map(item => {
+                const thumbnailUrl = item.thumbnail || (item.thumbnails && item.thumbnails[0]?.url);
+                return {
+                    title: item.title,
+                    uploaderName: item.uploader || item.channel,
+                    thumbnail: thumbnailUrl ? `/api/proxy-image?url=${encodeURIComponent(thumbnailUrl)}` : null,
+                    url: `https://www.youtube.com/watch?v=${item.id}`,
+                    duration: item.duration,
+                    id: item.id
+                };
+            });
+            res.json({ items });
+        } catch (e) {
+            res.status(500).json({ error: "Failed to parse search results" });
+        }
+    });
 });
 
 // --- IMAGE PROXY ENDPOINT ---
@@ -52,10 +52,7 @@ app.get('/api/proxy-image', async (req, res) => {
     try {
         const response = await axios.get(imageUrl, {
             responseType: 'stream',
-            headers: {
-                'User-Agent': 'Mozilla/5.0',
-                'Referer': 'https://www.youtube.com/'
-            }
+            headers: { 'User-Agent': 'Mozilla/5.0' }
         });
         res.setHeader('Content-Type', response.headers['content-type']);
         response.data.pipe(res);
@@ -71,24 +68,26 @@ app.get('/api/stream', (req, res) => {
 
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
+    // We use a generic audio content type to be safe
     res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Transfer-Encoding', 'chunked');
 
-    // Create a readable stream directly from youtube-dl-exec
-    const stream = youtubedl.exec(youtubeUrl, {
-        format: 'bestaudio',
-        output: '-',
-    });
+    const ytDlpProcess = spawn('yt-dlp', [
+        '--no-playlist',
+        '-f', 'ba',
+        '--no-part',
+        '--no-cache-dir',
+        '-o', '-',
+        youtubeUrl
+    ]);
 
-    stream.stdout.pipe(res);
+    ytDlpProcess.stdout.pipe(res);
 
-    stream.on('error', (err) => {
-        console.error('Stream error:', err);
+    ytDlpProcess.on('error', (err) => {
         res.status(500).end();
     });
 
     req.on('close', () => {
-        if (stream.kill) stream.kill();
+        ytDlpProcess.kill();
     });
 });
 

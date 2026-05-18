@@ -142,10 +142,22 @@ function App() {
     if (!query) return;
     setCurrentView('search');
     try {
-      const data = await fetchWithFallback(`/search?q=${encodeURIComponent(query)}&filter=music_songs`);
-      setSearchResults(data.items);
+      const results = await fetchWithFallback(`/search?q=${encodeURIComponent(query)}&filter=music_songs`);
+      // Tag results with the base engine that successfully served them
+      const taggedResults = results.items.map(item => ({ ...item, engine: activeEngine }));
+      setSearchResults(taggedResults);
     } catch (err) { alert("ERROR: SEARCH ENGINE OFFLINE"); }
   };
+
+  useEffect(() => {
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.play().catch(e => console.error("Playback failed", e));
+      } else {
+        audioRef.current.pause();
+      }
+    }
+  }, [isPlaying, currentTrack]);
 
   const playTrack = async (track) => {
     try {
@@ -153,14 +165,18 @@ function App() {
       const data = await fetchWithFallback(`/streams/${videoId}`);
       
       let streamUrl;
+      const trackEngine = data.baseEngine || activeEngine;
+
       if (data.isLocalStream) {
-        streamUrl = `${data.baseEngine}/stream?id=${data.videoId}`;
+        // Construct correct path for local pipeline
+        const base = trackEngine.endsWith('/') ? trackEngine.slice(0, -1) : trackEngine;
+        streamUrl = `${base}/stream?id=${data.videoId}`;
       } else {
         const stream = data.audioStreams.find(s => s.format === 'M4A') || data.audioStreams[0];
         streamUrl = stream.url;
       }
 
-      setCurrentTrack({ ...track, streamUrl });
+      setCurrentTrack({ ...track, streamUrl, engine: trackEngine });
       setIsPlaying(true);
       fetchLyrics(track.title, track.uploaderName);
       fetchArtistInfo(track.uploaderName);
@@ -260,11 +276,18 @@ function App() {
     else setLikedSongs([...likedSongs, track]);
   };
 
-  const getImageUrl = (url) => {
+  const getImageUrl = (trackOrUrl) => {
+    if (!trackOrUrl) return "";
+    const url = typeof trackOrUrl === 'string' ? trackOrUrl : trackOrUrl.thumbnail;
     if (!url) return "";
     if (url.startsWith('http')) return url;
-    // Resolve relative proxy paths against the active engine
-    const base = activeEngine.endsWith('/') ? activeEngine.slice(0, -1) : activeEngine;
+
+    const targetEngine = trackOrUrl.engine || activeEngine;
+    // Remove /api from the engine if the url already starts with /api to avoid double /api/api
+    let base = targetEngine.endsWith('/') ? targetEngine.slice(0, -1) : targetEngine;
+    if (url.startsWith('/api') && base.endsWith('/api')) {
+      base = base.slice(0, -4);
+    }
     return `${base}${url}`;
   };
 
@@ -316,7 +339,7 @@ function App() {
             <div className="shelf-grid">
               {searchResults.map((s, i) => (
                 <div key={i} className="hardware-card" onClick={() => playTrack(s)}>
-                  <div className="card-image"><img src={getImageUrl(s.thumbnail)} alt="art" /></div>
+                  <div className="card-image"><img src={getImageUrl(s)} alt="art" /></div>
                   <h4>{s.title}</h4>
                 </div>
               ))}
@@ -337,7 +360,7 @@ function App() {
           {currentTrack ? (
             <>
               <div className={`disc-container ${isPlaying ? 'spinning' : ''}`}>
-                <img src={getImageUrl(currentTrack.thumbnail)} className="walkman-disc" alt="art" />
+                <img src={getImageUrl(currentTrack)} className="walkman-disc" alt="art" />
                 <div className="disc-spindle"></div>
               </div>
               <div className="deck-meta">

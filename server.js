@@ -28,7 +28,7 @@ app.get('/api/search', (req, res) => {
                     title: item.title,
                     uploaderName: item.uploader || item.channel,
                     // Proxy the thumbnail to avoid CORS/Referer issues
-                    thumbnail: thumbnailUrl ? `http://localhost:5001/api/proxy-image?url=${encodeURIComponent(thumbnailUrl)}` : null,
+                    thumbnail: thumbnailUrl ? `/api/proxy-image?url=${encodeURIComponent(thumbnailUrl)}` : null,
                     url: `https://www.youtube.com/watch?v=${item.id}`,
                     duration: item.duration
                 };
@@ -73,10 +73,11 @@ app.get('/api/stream', (req, res) => {
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Transfer-Encoding', 'chunked');
 
-    // Call yt-dlp to extract the best audio format and pipe to response
-    // Using -f bestaudio to get the highest quality audio
     const ytDlpProcess = spawn('yt-dlp', [
-        '-f', 'bestaudio',
+        '--no-playlist',
+        '-f', 'ba',
+        '--no-part',
+        '--no-cache-dir',
         '-o', '-',
         youtubeUrl
     ]);
