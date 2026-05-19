@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, Play, Pause, SkipForward, SkipBack, Heart, 
   Volume2, Shuffle, Repeat, Library, Home, User, Mic2, Cpu,
-  Radio, Headphones, CassetteTape, Music2
+  Radio, Headphones, CassetteTape, Music2, Plus, ListMusic
 } from 'lucide-react';
 import axios from 'axios';
 import './styles.css';
@@ -30,14 +30,10 @@ const OPENROUTER_KEY = process.env.REACT_APP_OPENROUTER_KEY;
 if (!OPENROUTER_KEY) console.warn("WARNING: REACT_APP_OPENROUTER_KEY is not defined in the environment.");
 else console.log("AI SYSTEM INITIALIZED: KEY LOADED (", OPENROUTER_KEY.substring(0, 6), "...)");
 
-const SPOTIFY_CLIENT_ID = process.env.REACT_APP_SPOTIFY_CLIENT_ID;
-
 const getHost = () => {
   const host = window.location.hostname;
   return host === 'localhost' ? 'localhost' : host;
 };
-
-const REDIRECT_URI = process.env.REACT_APP_SPOTIFY_REDIRECT_URI || `http://${getHost()}:3000`;
 
 const ENGINES = [
   `http://${getHost()}:5001/api`,
@@ -62,13 +58,12 @@ function App() {
   const [isAiMode, setIsAiMode] = useState(false);
   const [isAiLoading, setIsAiLoading] = useState(false);
   
-  // Spotify State
-  const [token, setToken] = useState(window.localStorage.getItem("spotify_token") || "");
-  const [spotifyUser, setSpotifyUser] = useState(null);
-  const [spotifyPlaylists, setSpotifyPlaylists] = useState([]);
-
+  const [queue, setQueue] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(-1);
+  
   const audioRef = useRef(null);
   const [likedSongs, setLikedSongs] = useState(() => JSON.parse(localStorage.getItem('likedSongs') || '[]'));
+  const [localTapes, setLocalTapes] = useState(() => JSON.parse(localStorage.getItem('localTapes') || '[]'));
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
@@ -115,52 +110,6 @@ function App() {
     }
     throw new Error("ALL ENGINES OFFLINE");
   };
-
-  // --- SPOTIFY OAUTH2 PKCE ---
-  const loginToSpotify = async () => {
-    const verifier = generateRandomString(64);
-    const hashed = await sha256(verifier);
-    const challenge = base64encode(hashed);
-    window.localStorage.setItem('code_verifier', verifier);
-    const params = new URLSearchParams({
-      response_type: 'code', client_id: SPOTIFY_CLIENT_ID, scope: 'user-library-read playlist-read-private',
-      code_challenge_method: 'S256', code_challenge: challenge, redirect_uri: REDIRECT_URI
-    });
-    window.location.href = `https://accounts.spotify.com/authorize?${params.toString()}`;
-  };
-
-  useEffect(() => {
-    const code = new URLSearchParams(window.location.search).get('code');
-    if (code) exchangeCodeForToken(code);
-  }, []);
-
-  const exchangeCodeForToken = async (code) => {
-    const verifier = window.localStorage.getItem('code_verifier');
-    const params = new URLSearchParams({
-      client_id: SPOTIFY_CLIENT_ID, grant_type: 'authorization_code', code, redirect_uri: REDIRECT_URI, code_verifier: verifier
-    });
-    try {
-      const res = await axios.post('https://accounts.spotify.com/api/token', params);
-      window.localStorage.setItem('spotify_token', res.data.access_token);
-      setToken(res.data.access_token);
-      window.history.pushState({}, null, '/');
-    } catch (e) { console.error("Auth Fail", e); }
-  };
-
-  useEffect(() => {
-    if (token) fetchSpotifyData(token);
-  }, [token]);
-
-  const fetchSpotifyData = async (t) => {
-    try {
-      const user = await axios.get("https://api.spotify.com/v1/me", { headers: { Authorization: `Bearer ${t}` } });
-      setSpotifyUser(user.data);
-      const playlists = await axios.get("https://api.spotify.com/v1/me/playlists", { headers: { Authorization: `Bearer ${t}` } });
-      setSpotifyPlaylists(playlists.data.items);
-    } catch (err) { if (err.response?.status === 401) logout(); }
-  };
-
-  const logout = () => { setToken(""); window.localStorage.removeItem("spotify_token"); setSpotifyUser(null); };
 
   // --- SEARCH & PLAYBACK ---
   const handleSearch = async (e) => {
@@ -220,9 +169,21 @@ function App() {
     }
   }, [isPlaying, currentTrack]);
 
-  const playTrack = async (track) => {
+  const playTrack = async (track, newQueue = null) => {
+    console.log("Playing Track:", track.title, "Queue Size:", newQueue ? newQueue.length : queue.length);
     try {
+      if (newQueue) {
+        setQueue(newQueue);
+        const index = newQueue.findIndex(t => t.url === track.url);
+        setCurrentIndex(index !== -1 ? index : 0);
+      } else if (queue.length > 0) {
+        const index = queue.findIndex(t => t.url === track.url);
+        if (index !== -1) setCurrentIndex(index);
+      }
+
       const videoId = track.id || track.url?.split('v=')[1];
+      if (!videoId) throw new Error("Could not extract Video ID");
+      
       const { data, engine } = await fetchWithFallback(`/streams/${videoId}`);
       
       let streamUrl;
@@ -237,7 +198,40 @@ function App() {
       setIsPlaying(true);
       fetchLyrics(track.title, track.uploaderName);
       fetchArtistInfo(track.uploaderName);
-    } catch (err) { alert("ERROR: PLAYBACK ENGINE OFFLINE"); }
+    } catch (err) { 
+      console.error("Playback Error:", err);
+      alert("ERROR: PLAYBACK ENGINE OFFLINE"); 
+    }
+  };
+
+  const handleNext = () => {
+    console.log("Next Track Requested. Current Index:", currentIndex, "Queue Length:", queue.length);
+    if (queue.length === 0 || currentIndex === -1) return;
+    const nextIndex = (currentIndex + 1) % queue.length;
+    playTrack(queue[nextIndex]);
+  };
+
+  const handlePrev = () => {
+    console.log("Prev Track Requested. Current Index:", currentIndex, "Queue Length:", queue.length);
+    if (queue.length === 0 || currentIndex === -1) return;
+    const prevIndex = (currentIndex - 1 + queue.length) % queue.length;
+    playTrack(queue[prevIndex]);
+  };
+
+  const addToQueue = (track) => {
+    console.log("Adding to Queue:", track.title);
+    setQueue(prev => {
+      const exists = prev.find(t => t.url === track.url);
+      if (exists) return prev;
+      const newQueue = [...prev, track];
+      
+      // If nothing is playing and the queue was empty, start this track
+      if (currentIndex === -1) {
+        playTrack(track, newQueue);
+      }
+      
+      return newQueue;
+    });
   };
 
   // --- UTILS ---
@@ -300,10 +294,24 @@ function App() {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
+  useEffect(() => {
+    localStorage.setItem('likedSongs', JSON.stringify(likedSongs));
+  }, [likedSongs]);
+
+  useEffect(() => {
+    localStorage.setItem('localTapes', JSON.stringify(localTapes));
+  }, [localTapes]);
+
   const toggleLike = (track) => {
     const isLiked = likedSongs.find(s => s.url === track.url);
     if (isLiked) setLikedSongs(likedSongs.filter(s => s.url !== track.url));
     else setLikedSongs([...likedSongs, track]);
+  };
+
+  const toggleLocalTape = (track) => {
+    const isTaped = localTapes.find(s => s.url === track.url);
+    if (isTaped) setLocalTapes(localTapes.filter(s => s.url !== track.url));
+    else setLocalTapes([...localTapes, track]);
   };
 
   const getImageUrl = (trackOrUrl) => {
@@ -320,10 +328,9 @@ function App() {
   const navItems = [
     { icon: Home, label: 'Home', view: 'home' },
     { icon: Search, label: 'Discover', view: 'search' },
-    { icon: Library, label: 'Collection', view: 'liked' },
-    { icon: CassetteTape, label: 'Spotify', view: 'spotify' },
+    { icon: ListMusic, label: 'Queue', view: 'queue' },
+    { icon: CassetteTape, label: 'Collection', view: 'liked' },
     { icon: Radio, label: 'Retro FM', view: 'radio' },
-    { icon: Heart, label: 'Favorites', view: 'liked' },
   ];
 
   return (
@@ -332,13 +339,12 @@ function App() {
       <div className="absolute inset-0 opacity-[0.035] pointer-events-none" style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,0.18) 1px, transparent 1px)', backgroundSize: '4px 4px' }} />
 
       {/* Mobile Menu Button */}
-      <button 
+      <button
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
         className="lg:hidden absolute top-6 right-6 z-50 p-3 rounded-xl bg-[#FF6B35] text-[#10151D] shadow-lg"
       >
-        <Library className="w-6 h-6" />
+        <CassetteTape className="w-6 h-6" />
       </button>
-
       {/* Sidebar */}
       <aside className={`${isSidebarOpen ? 'flex' : 'hidden'} lg:flex fixed lg:relative inset-0 lg:inset-auto w-full lg:w-[260px] bg-[#121923]/98 lg:bg-[#121923]/95 border-r border-[#2A3647] p-6 flex-col justify-between z-40 backdrop-blur-xl transition-all duration-300`}>
         <div>
@@ -397,7 +403,7 @@ function App() {
           <div>
             <p className="uppercase tracking-[0.35em] text-[#8EA8C3] text-xs mb-3">Analog Experience</p>
             <h2 className="text-4xl md:text-7xl font-black leading-[0.9] text-[#FFF8F0]">
-              {currentView === 'search' ? 'SEARCH\nVIBES.' : currentView === 'liked' ? 'FAVORITE\nTAPES.' : 'MIDNIGHT\nDRIVE.'}
+              {currentView === 'search' ? 'SEARCH\nTAPES.' : currentView === 'liked' ? 'TAPE\nARCHIVE.' : 'MIDNIGHT\nDRIVE.'}
             </h2>
           </div>
 
@@ -472,7 +478,7 @@ function App() {
               {/* Controls */}
               <div className="flex items-center gap-6 md:gap-8">
                 <div className="flex gap-4 md:gap-5">
-                  <button className="w-12 h-12 md:w-14 md:h-14 rounded-[16px] md:rounded-[18px] bg-[#1C2531] border border-[#304055] flex items-center justify-center hover:border-[#5DA9E9]/40 transition-all">
+                  <button onClick={handlePrev} className="w-12 h-12 md:w-14 md:h-14 rounded-[16px] md:rounded-[18px] bg-[#1C2531] border border-[#304055] flex items-center justify-center hover:border-[#5DA9E9]/40 transition-all">
                     <SkipBack className="w-5 h-5" />
                   </button>
 
@@ -480,11 +486,26 @@ function App() {
                     {isPlaying ? <Pause className="w-6 h-6 md:w-8 md:h-8 fill-current" /> : <Play className="w-6 h-6 md:w-8 md:h-8 fill-current ml-1" />}
                   </button>
 
-                  <button className="w-12 h-12 md:w-14 md:h-14 rounded-[16px] md:rounded-[18px] bg-[#1C2531] border border-[#304055] flex items-center justify-center hover:border-[#5DA9E9]/40 transition-all">
+                  <button onClick={handleNext} className="w-12 h-12 md:w-14 md:h-14 rounded-[16px] md:rounded-[18px] bg-[#1C2531] border border-[#304055] flex items-center justify-center hover:border-[#5DA9E9]/40 transition-all">
                     <SkipForward className="w-5 h-5" />
                   </button>
                 </div>
-                {currentTrack && <Heart onClick={() => toggleLike(currentTrack)} className={`w-6 h-6 md:w-8 md:h-8 cursor-pointer ${likedSongs.find(s => s.url === currentTrack.url) ? 'text-[#FF6B35] fill-current' : 'text-[#8EA8C3]'}`} />}
+                <div className="flex gap-4 items-center">
+                  {currentTrack && (
+                    <>
+                      <CassetteTape 
+                        onClick={() => toggleLocalTape(currentTrack)} 
+                        className={`w-6 h-6 md:w-8 md:h-8 cursor-pointer transition-all ${localTapes.find(s => s.url === currentTrack.url) ? 'text-[#FF6B35] scale-110' : 'text-[#8EA8C3] hover:text-[#FFB347]'}`} 
+                        title="Archive to Tape"
+                      />
+                      <Heart 
+                        onClick={() => toggleLike(currentTrack)} 
+                        className={`w-6 h-6 md:w-8 md:h-8 cursor-pointer transition-all ${likedSongs.find(s => s.url === currentTrack.url) ? 'text-[#FF4D4D] fill-current scale-110' : 'text-[#8EA8C3] hover:text-[#FF4D4D]'}`} 
+                        title="Add to Favorites"
+                      />
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -494,19 +515,28 @@ function App() {
         {currentView === 'home' && (
           <section>
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-3xl font-black text-[#FFF8F0]">Your Spotify Archive</h3>
+              <h3 className="text-3xl font-black text-[#FFF8F0]">Recent Local Tapes</h3>
             </div>
             <div className="grid grid-cols-2 gap-6 mb-12">
-               {spotifyPlaylists.slice(0, 4).map((pl, i) => (
-                <div key={i} className="flex items-center gap-4 bg-[#1A222D] p-4 rounded-[24px] border border-[#2E3C4F] hover:border-[#FF6B35] transition-all cursor-pointer">
-                  <img src={pl.images[0]?.url} className="w-20 h-20 rounded-xl" alt="playlist" />
-                  <div>
-                    <h4 className="font-bold text-lg">{pl.name}</h4>
-                    <p className="text-xs text-[#8EA8C3] uppercase tracking-widest">{pl.tracks.total} Tapes</p>
+               {localTapes.slice(0, 4).map((track, i) => (
+                <div key={i} onClick={() => playTrack(track, localTapes)} className="group flex items-center gap-4 bg-[#1A222D] p-4 rounded-[24px] border border-[#2E3C4F] hover:border-[#FF6B35] transition-all cursor-pointer">
+                  <div className="relative w-20 h-20 shrink-0">
+                    <img src={getImageUrl(track)} className="w-full h-full rounded-xl object-cover" alt="tape" />
+                    <div className="absolute inset-0 bg-[#FF6B35]/0 group-hover:bg-[#FF6B35]/40 rounded-xl flex items-center justify-center transition-all">
+                      <Play className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 fill-current" />
+                    </div>
+                  </div>
+                  <div className="overflow-hidden">
+                    <h4 className="font-bold text-lg line-clamp-1 group-hover:text-[#FFB347] transition-colors">{track.title}</h4>
+                    <p className="text-xs text-[#8EA8C3] uppercase tracking-widest truncate">{track.uploaderName}</p>
                   </div>
                 </div>
               ))}
-              {spotifyPlaylists.length === 0 && <button onClick={loginToSpotify} className="col-span-2 border-2 border-dashed border-[#2E3C4F] rounded-[24px] py-10 text-[#8EA8C3] font-bold hover:border-[#FF6B35] hover:text-[#FF6B35] transition-all uppercase tracking-widest">Connect Spotify Tape Deck</button>}
+              {localTapes.length === 0 && (
+                <div className="col-span-2 border-2 border-dashed border-[#2E3C4F] rounded-[24px] py-10 text-center text-[#8EA8C3] font-bold uppercase tracking-widest">
+                  No Tapes Found. Start archiving to build your collection.
+                </div>
+              )}
             </div>
           </section>
         )}
@@ -539,7 +569,7 @@ function App() {
 
              <div className="space-y-4">
                 {searchResults.map((track) => (
-                  <div key={track.id} onClick={() => playTrack(track)} className="group flex items-center justify-between rounded-[26px] bg-[#1A222D] border border-[#2E3C4F] px-6 py-5 hover:bg-[#202A37] hover:border-[#FF6B35]/30 transition-all cursor-pointer">
+                  <div key={track.id} onClick={() => playTrack(track, searchResults)} className="group flex items-center justify-between rounded-[26px] bg-[#1A222D] border border-[#2E3C4F] px-6 py-5 hover:bg-[#202A37] hover:border-[#FF6B35]/30 transition-all cursor-pointer">
                     <div className="flex items-center gap-5">
                       <div className="relative">
                         <img src={getImageUrl(track)} className="w-14 h-14 rounded-xl object-cover" alt="art" />
@@ -552,10 +582,69 @@ function App() {
                         <p className="text-sm text-[#8EA8C3]">{track.uploaderName}</p>
                       </div>
                     </div>
-                    <span className="text-[#8EA8C3] font-mono text-sm">{formatTime(track.duration || 0)}</span>
+                    <div className="flex items-center gap-4">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); addToQueue(track); }}
+                        className="p-3 rounded-full bg-[#243140] text-[#8EA8C3] hover:bg-[#FF6B35] hover:text-[#10151D] transition-all opacity-0 group-hover:opacity-100"
+                        title="Add to Queue"
+                      >
+                        <Plus className="w-5 h-5" />
+                      </button>
+                      <span className="text-[#8EA8C3] font-mono text-sm">{formatTime(track.duration || 0)}</span>
+                    </div>
                   </div>
                 ))}
              </div>
+          </section>
+        )}
+
+        {currentView === 'queue' && (
+          <section>
+            <div className="flex items-center justify-between mb-8">
+               <h3 className="text-3xl font-black text-[#FFF8F0]">Active Queue</h3>
+               <button 
+                 onClick={() => { setQueue([]); setCurrentIndex(-1); }}
+                 className="px-6 py-3 rounded-full bg-[#243140] text-[#FF4D4D] font-bold uppercase tracking-widest text-xs hover:bg-[#FF4D4D] hover:text-[#10151D] transition-all"
+               >
+                 Clear Queue
+               </button>
+            </div>
+            <div className="space-y-4">
+               {queue.map((track, i) => (
+                 <div 
+                   key={track.url + i} 
+                   onClick={() => playTrack(track)}
+                   className={`group flex items-center justify-between rounded-[26px] border px-6 py-5 transition-all cursor-pointer ${
+                     currentIndex === i 
+                       ? 'bg-[#FF6B35]/10 border-[#FF6B35] shadow-[0_0_30px_rgba(255,107,53,0.1)]' 
+                       : 'bg-[#1A222D] border-[#2E3C4F] hover:bg-[#202A37] hover:border-[#FF6B35]/30'
+                   }`}
+                 >
+                   <div className="flex items-center gap-5">
+                     <div className={`w-12 h-12 rounded-[16px] flex items-center justify-center transition-all ${
+                       currentIndex === i ? 'bg-[#FF6B35] text-[#10151D]' : 'bg-[#243140] text-[#8EA8C3] group-hover:bg-[#FF6B35] group-hover:text-[#10151D]'
+                     }`}>
+                       {currentIndex === i ? <Volume2 className="w-5 h-5 animate-pulse" /> : <Play className="w-4 h-4 fill-current" />}
+                     </div>
+                     <div>
+                       <h4 className={`font-semibold text-lg transition-colors ${currentIndex === i ? 'text-[#FF6B35]' : 'text-[#F7F1E8] group-hover:text-[#FFB347]'}`}>
+                         {track.title}
+                       </h4>
+                       <p className="text-sm text-[#8EA8C3]">{track.uploaderName}</p>
+                     </div>
+                   </div>
+                   <div className="flex items-center gap-4">
+                      {currentIndex === i && <span className="px-3 py-1 rounded-full bg-[#FF6B35] text-[#10151D] text-[10px] font-black uppercase tracking-widest">Now Playing</span>}
+                      <span className="text-[#8EA8C3] font-mono text-sm">{formatTime(track.duration || 0)}</span>
+                   </div>
+                 </div>
+               ))}
+               {queue.length === 0 && (
+                 <div className="py-20 text-center border-2 border-dashed border-[#2E3C4F] rounded-[40px] text-[#8EA8C3] font-bold uppercase tracking-[0.2em]">
+                   Your Queue is Empty
+                 </div>
+               )}
+            </div>
           </section>
         )}
 
@@ -564,7 +653,7 @@ function App() {
             <h3 className="text-3xl font-black text-[#FFF8F0] mb-6">Tonight's Mixtape</h3>
             <div className="space-y-4">
               {likedSongs.map((track) => (
-                <div key={track.url} onClick={() => playTrack(track)} className="group flex items-center justify-between rounded-[26px] bg-[#1A222D] border border-[#2E3C4F] px-6 py-5 hover:bg-[#202A37] hover:border-[#FF6B35]/30 transition-all cursor-pointer shadow-[0_15px_35px_rgba(0,0,0,0.25)]">
+                <div key={track.url} onClick={() => playTrack(track, likedSongs)} className="group flex items-center justify-between rounded-[26px] bg-[#1A222D] border border-[#2E3C4F] px-6 py-5 hover:bg-[#202A37] hover:border-[#FF6B35]/30 transition-all cursor-pointer shadow-[0_15px_35px_rgba(0,0,0,0.25)]">
                   <div className="flex items-center gap-5">
                     <div className="w-12 h-12 rounded-[16px] bg-[#243140] border border-[#324255] flex items-center justify-center text-[#8EA8C3] group-hover:bg-[#FF6B35] group-hover:text-[#10151D] transition-all">
                       <Play className="w-4 h-4 fill-current" />
@@ -574,7 +663,16 @@ function App() {
                       <p className="text-sm text-[#8EA8C3] mt-1">Echonix Retro Sessions</p>
                     </div>
                   </div>
-                  <span className="text-[#8EA8C3] text-sm font-mono">3:42</span>
+                  <div className="flex items-center gap-4">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); addToQueue(track); }}
+                      className="p-3 rounded-full bg-[#243140] text-[#8EA8C3] hover:bg-[#FF6B35] hover:text-[#10151D] transition-all opacity-0 group-hover:opacity-100"
+                      title="Add to Queue"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                    <span className="text-[#8EA8C3] text-sm font-mono">3:42</span>
+                  </div>
                 </div>
               ))}
               {likedSongs.length === 0 && <p className="text-center text-[#8EA8C3] py-20 border-2 border-dashed border-[#2E3C4F] rounded-[30px]">NO TAPES SAVED IN COLLECTION.</p>}
@@ -643,6 +741,7 @@ function App() {
         crossOrigin="anonymous"
         onPlay={() => setIsPlaying(true)} 
         onPause={() => setIsPlaying(false)} 
+        onEnded={handleNext}
         onTimeUpdate={(e)=>setCurrentTime(e.target.currentTime)} 
         onLoadedMetadata={(e)=>setDuration(e.target.duration)}
       />
