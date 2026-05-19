@@ -21,6 +21,7 @@ body {
   color: var(--cream-text);
   font-family: 'Plus Jakarta Sans', sans-serif;
   height: 100vh;
+  width: 100vw;
   overflow: hidden;
 }
 
@@ -34,22 +35,28 @@ body::after {
   z-index: 10000;
 }
 
-/* APP GRID STABILIZATION */
+/* MAIN APP CONTAINER */
 .echonix-app {
   display: flex;
   height: 100vh;
   width: 100vw;
-  overflow: hidden;
-  background-color: #1A2330;
+  overflow: hidden; /* App container doesn't scroll, children do */
 }
 
-/* MAIN VIEWPORT */
+/* SIDEBARS - FIXED WIDTH */
+aside {
+  flex-shrink: 0;
+}
+
+/* MAIN CONTENT AREA - SCROLLABLE */
 .main-viewport {
   flex: 1;
-  overflow-y: auto;
+  min-width: 500px; /* Prevent it from getting too squashed */
   height: 100vh;
+  overflow-y: auto;
   position: relative;
   scrollbar-gutter: stable;
+  background: radial-gradient(circle at top, #243244 0%, #1A2330 65%);
 }
 
 .custom-scrollbar::-webkit-scrollbar {
@@ -66,9 +73,31 @@ body::after {
   background: #FF6B35;
 }
 
-/* Ensure content doesn't get cut off */
+/* Ensure content has space at the bottom */
 .view-content {
-  padding-bottom: 100px;
+  padding-bottom: 60px;
+}
+
+/* RESPONSIVE ADAPTIVITY */
+@media (max-width: 1200px) {
+  .right-panel {
+    display: none; /* Hide right panel on smaller screens */
+  }
+}
+
+@media (max-width: 800px) {
+  .sidebar-nav {
+    width: 80px; /* Shrink sidebar to icons only */
+  }
+  .sidebar-nav span, .sidebar-nav p, .sidebar-nav h1 {
+    display: none;
+  }
+}
+
+/* CASSETTE ART ENHANCEMENTS */
+.cassette-label-image {
+  mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
 }
 
 @keyframes rotateDisc {
@@ -80,17 +109,6 @@ body::after {
   display: flex;
   flex-direction: column;
   justify-content: center;
-}
-
-.title-text {
-  font-weight: 700;
-  font-size: 14px;
-  color: #fff;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 180px;
-  font-family: 'Plus Jakarta Sans', sans-serif;
 }
 
 .artist-text {

@@ -2,18 +2,32 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const ytSearch = require('yt-search');
+const youtubedl = require('youtube-dl-exec');
+const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 5001;
+
+const log = (msg) => {
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync('server.log', `[${timestamp}] ${msg}\n`);
+    console.log(msg);
+};
 
 app.use(cors());
 
 // A robust list of public Piped instances to use as "shields"
 const PIPED_INSTANCES = [
-    "https://pipedapi.syncpundit.io",
     "https://pipedapi.kavin.rocks",
+    "https://api-piped.mha.fi",
     "https://piped-api.garudalinux.org",
-    "https://api.piped.victr.me",
-    "https://pipedapi.drgns.space"
+    "https://pipedapi.rivo.lol",
+    "https://pipedapi.leptons.xyz",
+    "https://piped-api.lunar.icu",
+    "https://pipedapi.silly.moe",
+    "https://pipedapi.adminforge.de",
+    "https://pipedapi.astre.me",
+    "https://pipedapi.moomoo.me",
+    "https://pipedapi.synced.cloud"
 ];
 
 // --- SEARCH ENDPOINT ---
@@ -60,46 +74,69 @@ app.get('/api/proxy-image', async (req, res) => {
     } catch (e) { res.status(500).end(); }
 });
 
+const { spawn } = require('child_process');
+const path = require('path');
+
+// Path to the yt-dlp binary provided by the package
+const YTDLP_PATH = path.join(__dirname, 'node_modules/youtube-dl-exec/bin/yt-dlp');
+
 // --- PURE PROXY STREAM ENDPOINT ---
-app.get('/api/stream', async (req, res) => {
+app.get('/api/stream', (req, res) => {
     const videoId = req.query.id;
     if (!videoId) return res.status(400).send("Missing ID");
 
-    console.log(`[Proxy] Requesting stream for: ${videoId}`);
+    log(`[Proxy] Direct Pipe started for: ${videoId}`);
 
-    // We iterate through public Piped instances to find one that can give us a stream URL.
-    // This bypasses the need for local yt-dlp/cookies and works on Render/Cloud.
-    for (const instance of PIPED_INSTANCES) {
-        try {
-            console.log(`[Proxy] Trying instance: ${instance}`);
-            const sRes = await axios.get(`${instance}/streams/${videoId}`, { timeout: 5000 });
-            
-            // Prefer M4A for best browser compatibility (especially mobile)
-            const stream = sRes.data.audioStreams.find(s => s.format === 'M4A') || sRes.data.audioStreams[0];
-            
-            if (stream && stream.url) {
-                console.log(`[Proxy] Success! Streaming from ${instance}`);
-                
-                // Fetch the actual audio bytes from the provided URL
-                const audioStream = await axios.get(stream.url, { 
-                    responseType: 'stream',
-                    headers: { 'User-Agent': 'Mozilla/5.0' }
-                });
+    const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-                // Set headers and pipe the bytes directly to the user
-                res.setHeader('Content-Type', audioStream.headers['content-type'] || 'audio/mp4');
-                return audioStream.data.pipe(res);
-            }
-        } catch (err) {
-            console.warn(`[Proxy] Instance ${instance} failed, trying next...`);
+    // Set headers for streaming
+    res.setHeader('Content-Type', 'audio/mp4'); // Defaulting to mp4/m4a
+    res.setHeader('Transfer-Encoding', 'chunked');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    // Arguments for yt-dlp to pipe best audio to stdout
+    const args = [
+        youtubeUrl,
+        '-f', 'bestaudio[ext=m4a]/bestaudio',
+        '-o', '-',
+        '--no-playlist',
+        '--no-warnings',
+        '--force-ipv4',
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+    ];
+
+    const ytDlpProcess = spawn(YTDLP_PATH, args);
+
+    // Pipe the audio data directly to the user
+    ytDlpProcess.stdout.pipe(res);
+
+    ytDlpProcess.stderr.on('data', (data) => {
+        const msg = data.toString();
+        if (msg.includes('ERROR') || msg.includes('WARNING')) {
+            log(`[yt-dlp Log] ${msg.trim()}`);
         }
-    }
+    });
 
-    console.error("[Proxy] ALL INSTANCES FAILED");
-    res.status(500).send("Playback engine failed - All proxies offline");
+    ytDlpProcess.on('close', (code) => {
+        if (code !== 0) {
+            log(`[Proxy] yt-dlp process exited with code ${code}`);
+            if (!res.headersSent) {
+                res.status(500).send("Playback engine failed");
+            }
+        } else {
+            log(`[Proxy] Stream complete for ${videoId}`);
+        }
+    });
+
+    // Handle client disconnect
+    req.on('close', () => {
+        log(`[Proxy] Client disconnected, killing yt-dlp for ${videoId}`);
+        ytDlpProcess.kill();
+    });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Echonix Pure-Proxy Server active on port ${PORT}`);
-    console.log(`Local Network: http://0.0.0.0:${PORT}`);
+    log(`Echonix Pure-Proxy Server active on port ${PORT}`);
+    log(`Local Network: http://0.0.0.0:${PORT}`);
 });
