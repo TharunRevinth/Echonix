@@ -26,7 +26,10 @@ const base64encode = (input) => {
 };
 
 // --- CONFIGURATION & ENGINES ---
-const GEMINI_KEY = process.env.REACT_APP_GEMINI_KEY;
+const OPENROUTER_KEY = process.env.REACT_APP_OPENROUTER_KEY;
+if (!OPENROUTER_KEY) console.warn("WARNING: REACT_APP_OPENROUTER_KEY is not defined in the environment.");
+else console.log("AI SYSTEM INITIALIZED: KEY LOADED (", OPENROUTER_KEY.substring(0, 6), "...)");
+
 const SPOTIFY_CLIENT_ID = process.env.REACT_APP_SPOTIFY_CLIENT_ID;
 
 const getHost = () => {
@@ -55,6 +58,9 @@ function App() {
   const [artistInfo, setArtistInfo] = useState(null);
   const [explanation, setExplanation] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [volume, setVolume] = useState(0.7);
+  const [isAiMode, setIsAiMode] = useState(false);
+  const [isAiLoading, setIsAiLoading] = useState(false);
   
   // Spotify State
   const [token, setToken] = useState(window.localStorage.getItem("spotify_token") || "");
@@ -65,6 +71,20 @@ function App() {
   const [likedSongs, setLikedSongs] = useState(() => JSON.parse(localStorage.getItem('likedSongs') || '[]'));
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+    }
+  }, [volume]);
+
+  const handleSeek = (e) => {
+    const time = parseFloat(e.target.value);
+    setCurrentTime(time);
+    if (audioRef.current) {
+      audioRef.current.currentTime = time;
+    }
+  };
 
   // --- ENGINE ROTATION LOGIC ---
   const fetchWithFallback = async (endpoint) => {
@@ -147,6 +167,42 @@ function App() {
     if (e) e.preventDefault();
     if (!query) return;
     setCurrentView('search');
+    
+    if (isAiMode) {
+      setIsAiLoading(true);
+      setSearchResults([]);
+      try {
+        const res = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
+          model: "google/gemini-2.0-flash-001",
+          messages: [{ role: "user", content: `Act as a retro music curator. Based on this vibe/setting: "${query}", suggest 8 specific, popular song titles and their uploader/artist names. Format the response ONLY as a comma-separated list of "Song - Artist". Do not include any other text.` }]
+        }, {
+          headers: { 
+            "Authorization": `Bearer ${OPENROUTER_KEY}`,
+            "HTTP-Referer": window.location.origin,
+            "X-Title": "Echonix Stereo System"
+          }
+        });
+        const suggestionText = res.data.choices?.[0]?.message?.content;
+        if (suggestionText) {
+          const suggestions = suggestionText.split(',').map(s => s.trim());
+          const allResults = [];
+          for (const s of suggestions) {
+             try {
+               const { data, engine } = await fetchWithFallback(`/search?q=${encodeURIComponent(s)}&filter=music_songs`);
+               if (data.items?.[0]) allResults.push({ ...data.items[0], engine });
+             } catch (err) {}
+          }
+          setSearchResults(allResults);
+        }
+      } catch (e) {
+        console.error("AI Search Error:", e.response?.data || e.message);
+        alert(`AI CURATOR OFFLINE: ${e.response?.status || 'Error'}`);
+      } finally {
+        setIsAiLoading(false);
+      }
+      return;
+    }
+
     try {
       const { data, engine } = await fetchWithFallback(`/search?q=${encodeURIComponent(query)}&filter=music_songs`);
       const taggedResults = data.items.map(item => ({ ...item, engine }));
@@ -218,15 +274,25 @@ function App() {
     }
     setExplanation("ACTIVATING ECHO AI ANALYZER...");
     try {
-      const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_KEY}`, {
-        contents: [{ parts: [{ text: `Act as a retro music analyzer. Explain the meaning and vibe of these lyrics in 3 punchy, technical points: ${lyrics}` }] }]
+      const res = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
+        model: "google/gemini-2.0-flash-001",
+        messages: [{ role: "user", content: `Act as a retro music analyzer. Explain the meaning and vibe of these lyrics in 3 punchy, technical points: ${lyrics}` }]
+      }, {
+        headers: { 
+          "Authorization": `Bearer ${OPENROUTER_KEY}`,
+          "HTTP-Referer": window.location.origin,
+          "X-Title": "Echonix Stereo System"
+        }
       });
-      if (res.data.candidates?.[0]?.content?.parts?.[0]?.text) {
-        setExplanation(res.data.candidates[0].content.parts[0].text);
+      if (res.data.choices?.[0]?.message?.content) {
+        setExplanation(res.data.choices[0].message.content);
       } else {
         setExplanation("AI ANALYSIS ERROR: SYSTEM RETURNED NULL.");
       }
-    } catch (e) { setExplanation(`AI OFFLINE: ${e.response?.status || '500 ERROR'}`); }
+    } catch (e) { 
+      console.error("AI Analysis Error:", e.response?.data || e.message);
+      setExplanation(`AI OFFLINE: ${e.response?.status || 'ERROR'} - ${e.response?.data?.error?.message || e.message}`); 
+    }
   };
 
   const formatTime = (t) => {
@@ -384,9 +450,17 @@ function App() {
               </p>
 
               {/* Progress */}
-              <div className="mb-3">
+              <div className="mb-3 relative group">
+                <input 
+                  type="range"
+                  min="0"
+                  max={duration || 0}
+                  value={currentTime}
+                  onChange={handleSeek}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                />
                 <div className="h-2 md:h-3 rounded-full bg-[#263343] overflow-hidden border border-[#36485E]">
-                  <div className="h-full bg-[#FF6B35] rounded-full shadow-[0_0_20px_rgba(255,107,53,0.5)] transition-all duration-300" style={{ width: `${(currentTime/duration)*100}%` }} />
+                  <div className="h-full bg-[#FF6B35] rounded-full shadow-[0_0_20px_rgba(255,107,53,0.5)] transition-all duration-300" style={{ width: `${(currentTime/(duration || 1))*100}%` }} />
                 </div>
               </div>
 
@@ -442,12 +516,27 @@ function App() {
              <form onSubmit={handleSearch} className="mb-8 relative">
                 <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-[#8EA8C3] w-6 h-6" />
                 <input 
-                  className="w-full bg-[#1A222D] border-2 border-[#2E3C4F] rounded-[30px] py-6 pl-16 pr-8 text-xl focus:border-[#FF6B35] outline-none transition-all placeholder:text-[#2E3C4F]"
-                  placeholder="SCAN THE MULTIVERSE FOR TUNES..."
+                  className="w-full bg-[#1A222D] border-2 border-[#2E3C4F] rounded-[30px] py-6 pl-16 pr-32 text-xl focus:border-[#FF6B35] outline-none transition-all placeholder:text-[#2E3C4F]"
+                  placeholder={isAiMode ? "DESCRIBE THE VIBE (e.g. 'rainy cafe', 'gaming')..." : "SCAN THE MULTIVERSE FOR TUNES..."}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                 />
+                <button 
+                  type="button"
+                  onClick={() => setIsAiMode(!isAiMode)}
+                  className={`absolute right-4 top-1/2 -translate-y-1/2 px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all ${isAiMode ? 'bg-[#FF6B35] text-[#10151D]' : 'bg-[#2E3C4F] text-[#8EA8C3] hover:bg-[#3E4F63]'}`}
+                >
+                  {isAiMode ? 'AI Mode' : 'Standard'}
+                </button>
              </form>
+
+             {isAiLoading && (
+               <div className="flex flex-col items-center justify-center py-20 animate-pulse">
+                  <div className="w-16 h-16 border-4 border-[#FF6B35] border-t-transparent rounded-full animate-spin mb-6" />
+                  <p className="text-[#FFB347] font-mono tracking-widest uppercase">Consulting the AI Curator...</p>
+               </div>
+             )}
+
              <div className="space-y-4">
                 {searchResults.map((track) => (
                   <div key={track.id} onClick={() => playTrack(track)} className="group flex items-center justify-between rounded-[26px] bg-[#1A222D] border border-[#2E3C4F] px-6 py-5 hover:bg-[#202A37] hover:border-[#FF6B35]/30 transition-all cursor-pointer">
@@ -505,8 +594,17 @@ function App() {
           <p className="text-[#8EA8C3] mb-8 uppercase tracking-widest text-xs">{currentTrack ? 'Limited Tape Edition' : 'Standby Mode'}</p>
           <div className="flex items-center gap-4">
             <Volume2 className="w-5 h-5 text-[#FF6B35]" />
-            <div className="flex-1 h-2 rounded-full bg-[#243244] overflow-hidden">
-              <div className="w-[72%] h-full bg-[#FF6B35] rounded-full shadow-[0_0_20px_rgba(255,107,53,0.45)]" />
+            <div className="flex-1 h-2 rounded-full bg-[#243244] overflow-hidden relative group">
+              <input 
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={volume}
+                onChange={(e) => setVolume(parseFloat(e.target.value))}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              />
+              <div className="h-full bg-[#FF6B35] rounded-full shadow-[0_0_20px_rgba(255,107,53,0.45)]" style={{ width: `${volume * 100}%` }} />
             </div>
           </div>
         </div>
