@@ -1,29 +1,20 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const ytdl = require('@distube/ytdl-core');
 const ytSearch = require('yt-search');
 const app = express();
 const PORT = process.env.PORT || 5001;
 
 app.use(cors());
 
-// --- YTDL AGENT SETUP ---
-let ytdlAgent;
-try {
-    const rawCookies = process.env.YOUTUBE_COOKIES_JSON;
-    if (rawCookies) {
-        const cookiesArray = JSON.parse(rawCookies);
-        ytdlAgent = ytdl.createAgent(cookiesArray);
-        console.log('[Echonix] Authenticated YouTube agent loaded successfully.');
-    } else {
-        console.log('[Echonix] Running without cookies (Local Fallback mode).');
-    }
-} catch (error) {
-    console.error('[Echonix Error] Failed to initialize cookies:', error.message);
-}
-
-const PIPED = ["https://pipedapi.syncpundit.io", "https://pipedapi.kavin.rocks", "https://piped-api.garudalinux.org"];
+// A robust list of public Piped instances to use as "shields"
+const PIPED_INSTANCES = [
+    "https://pipedapi.syncpundit.io",
+    "https://pipedapi.kavin.rocks",
+    "https://piped-api.garudalinux.org",
+    "https://api.piped.victr.me",
+    "https://pipedapi.drgns.space"
+];
 
 // --- SEARCH ENDPOINT ---
 app.get('/api/search', async (req, res) => {
@@ -31,9 +22,9 @@ app.get('/api/search', async (req, res) => {
     if (!query) return res.status(400).json({ error: "Missing query" });
 
     try {
-        // Use yt-search for high-speed, binary-free searching
+        // Search is safe and fast with yt-search
         const results = await ytSearch(query);
-        const videos = results.videos.slice(0, 10);
+        const videos = results.videos.slice(0, 15);
         
         return res.json({ 
             items: videos.map(v => ({ 
@@ -46,10 +37,10 @@ app.get('/api/search', async (req, res) => {
             }))
         });
     } catch (err) {
-        console.error("Search failed, falling back to Piped...");
-        for (const instance of PIPED) {
+        console.error("Local search failed, falling back to Piped...");
+        for (const instance of PIPED_INSTANCES) {
             try {
-                const pRes = await axios.get(`${instance}/search?q=${encodeURIComponent(query)}&filter=music_songs`, { timeout: 5000 });
+                const pRes = await axios.get(`${instance}/search?q=${encodeURIComponent(query)}&filter=music_songs`, { timeout: 4000 });
                 if (pRes.data && pRes.data.items) return res.json(pRes.data);
             } catch (pErr) {}
         }
@@ -60,60 +51,55 @@ app.get('/api/search', async (req, res) => {
 // --- IMAGE PROXY ---
 app.get('/api/proxy-image', async (req, res) => {
     try {
-        const r = await axios.get(req.query.url, { responseType: 'stream', headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const r = await axios.get(req.query.url, { 
+            responseType: 'stream', 
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } 
+        });
         res.setHeader('Content-Type', r.headers['content-type'] || 'image/jpeg');
         r.data.pipe(res);
     } catch (e) { res.status(500).end(); }
 });
 
-// --- STREAM ENDPOINT ---
+// --- PURE PROXY STREAM ENDPOINT ---
 app.get('/api/stream', async (req, res) => {
-    const id = req.query.id;
-    const videoUrl = `https://www.youtube.com/watch?v=${id}`;
-    let fallbackTriggered = false;
+    const videoId = req.query.id;
+    if (!videoId) return res.status(400).send("Missing ID");
 
-    const startFallback = async () => {
-        if (fallbackTriggered) return;
-        fallbackTriggered = true;
-        console.log(`Fallback triggered for video: ${id}`);
-        for (const instance of PIPED) {
-            try {
-                const s = await axios.get(`${instance}/streams/${id}`);
-                const stream = s.data.audioStreams.find(s => s.format === 'M4A') || s.data.audioStreams[0];
-                if (stream && stream.url) {
-                    const d = await axios.get(stream.url, { responseType: 'stream' });
-                    if (!res.headersSent) {
-                        res.setHeader('Content-Type', d.headers['content-type'] || 'audio/mp4');
-                    }
-                    return d.data.pipe(res);
-                }
-            } catch (err) {}
+    console.log(`[Proxy] Requesting stream for: ${videoId}`);
+
+    // We iterate through public Piped instances to find one that can give us a stream URL.
+    // This bypasses the need for local yt-dlp/cookies and works on Render/Cloud.
+    for (const instance of PIPED_INSTANCES) {
+        try {
+            console.log(`[Proxy] Trying instance: ${instance}`);
+            const sRes = await axios.get(`${instance}/streams/${videoId}`, { timeout: 5000 });
+            
+            // Prefer M4A for best browser compatibility (especially mobile)
+            const stream = sRes.data.audioStreams.find(s => s.format === 'M4A') || sRes.data.audioStreams[0];
+            
+            if (stream && stream.url) {
+                console.log(`[Proxy] Success! Streaming from ${instance}`);
+                
+                // Fetch the actual audio bytes from the provided URL
+                const audioStream = await axios.get(stream.url, { 
+                    responseType: 'stream',
+                    headers: { 'User-Agent': 'Mozilla/5.0' }
+                });
+
+                // Set headers and pipe the bytes directly to the user
+                res.setHeader('Content-Type', audioStream.headers['content-type'] || 'audio/mp4');
+                return audioStream.data.pipe(res);
+            }
+        } catch (err) {
+            console.warn(`[Proxy] Instance ${instance} failed, trying next...`);
         }
-        if (!res.headersSent) res.status(500).end();
-    };
-
-    try {
-        const streamOptions = {
-            filter: 'audioonly',
-            quality: 'highestaudio',
-            highWaterMark: 1 << 25 // 32MB buffer
-        };
-
-        if (ytdlAgent) streamOptions.agent = ytdlAgent;
-
-        res.setHeader('Content-Type', 'audio/mp4');
-        
-        ytdl(videoUrl, streamOptions)
-            .on('error', (err) => {
-                console.error("ytdl-core error:", err.message);
-                startFallback();
-            })
-            .pipe(res);
-
-    } catch (e) {
-        console.error("Stream route error:", e);
-        startFallback();
     }
+
+    console.error("[Proxy] ALL INSTANCES FAILED");
+    res.status(500).send("Playback engine failed - All proxies offline");
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`Echonix Pure-Node Server running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Echonix Pure-Proxy Server active on port ${PORT}`);
+    console.log(`Local Network: http://0.0.0.0:${PORT}`);
+});
