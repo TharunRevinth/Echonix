@@ -16,6 +16,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@distube/ytdl-core": "^4.16.12",
     "axios": "^1.16.1",
     "cors": "^2.8.6",
     "express": "^5.2.1",
@@ -23,7 +24,8 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-scripts": "^5.0.1",
-    "youtube-dl-exec": "^3.1.7"
+    "youtube-dl-exec": "^3.1.7",
+    "yt-search": "^2.13.1"
   },
   "browserslist": {
     "production": [

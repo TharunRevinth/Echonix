@@ -1,47 +1,63 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const { spawn } = require('child_process');
-const youtubeDl = require('youtube-dl-exec');
+const ytdl = require('@distube/ytdl-core');
+const ytSearch = require('yt-search');
 const app = express();
 const PORT = process.env.PORT || 5001;
 
 app.use(cors());
 
-// Use youtube-dl-exec to find the binary path
-const YT_DLP_PATH = youtubeDl.create(process.cwd()).path || 'yt-dlp';
+// --- YTDL AGENT SETUP ---
+let ytdlAgent;
+try {
+    const rawCookies = process.env.YOUTUBE_COOKIES_JSON;
+    if (rawCookies) {
+        const cookiesArray = JSON.parse(rawCookies);
+        ytdlAgent = ytdl.createAgent(cookiesArray);
+        console.log('[Echonix] Authenticated YouTube agent loaded successfully.');
+    } else {
+        console.log('[Echonix] Running without cookies (Local Fallback mode).');
+    }
+} catch (error) {
+    console.error('[Echonix Error] Failed to initialize cookies:', error.message);
+}
 
 const PIPED = ["https://pipedapi.syncpundit.io", "https://pipedapi.kavin.rocks", "https://piped-api.garudalinux.org"];
 
-app.get('/api/search', (req, res) => {
+// --- SEARCH ENDPOINT ---
+app.get('/api/search', async (req, res) => {
     const query = req.query.q;
-    const ytDlpProcess = spawn(YT_DLP_PATH, ['--no-playlist', '--flat-playlist', '--dump-json', `ytsearch10:${query}`]);
-    let output = '';
-    ytDlpProcess.stdout.on('data', (d) => { output += d.toString(); });
-    ytDlpProcess.on('close', async (code) => {
-        if (code === 0 && output.trim()) {
-            try {
-                const results = output.trim().split('\n').filter(l => l).map(line => JSON.parse(line));
-                return res.json({ items: results.map(i => ({ 
-                    title: i.title, 
-                    uploaderName: i.uploader || i.channel, 
-                    thumbnail: `/api/proxy-image?url=${encodeURIComponent(i.thumbnail || i.thumbnails?.[0]?.url)}`, 
-                    url: `https://www.youtube.com/watch?v=${i.id}`, 
-                    id: i.id 
-                }))});
-            } catch (e) {}
-        }
+    if (!query) return res.status(400).json({ error: "Missing query" });
+
+    try {
+        // Use yt-search for high-speed, binary-free searching
+        const results = await ytSearch(query);
+        const videos = results.videos.slice(0, 10);
         
+        return res.json({ 
+            items: videos.map(v => ({ 
+                title: v.title, 
+                uploaderName: v.author.name, 
+                thumbnail: `/api/proxy-image?url=${encodeURIComponent(v.thumbnail)}`, 
+                url: v.url, 
+                id: v.videoId,
+                duration: v.seconds
+            }))
+        });
+    } catch (err) {
+        console.error("Search failed, falling back to Piped...");
         for (const instance of PIPED) {
             try {
                 const pRes = await axios.get(`${instance}/search?q=${encodeURIComponent(query)}&filter=music_songs`, { timeout: 5000 });
                 if (pRes.data && pRes.data.items) return res.json(pRes.data);
-            } catch (err) {}
+            } catch (pErr) {}
         }
-        res.status(500).json({ error: "Search failed" });
-    });
+        res.status(500).json({ error: "All search engines offline" });
+    }
 });
 
+// --- IMAGE PROXY ---
 app.get('/api/proxy-image', async (req, res) => {
     try {
         const r = await axios.get(req.query.url, { responseType: 'stream', headers: { 'User-Agent': 'Mozilla/5.0' } });
@@ -50,8 +66,10 @@ app.get('/api/proxy-image', async (req, res) => {
     } catch (e) { res.status(500).end(); }
 });
 
+// --- STREAM ENDPOINT ---
 app.get('/api/stream', async (req, res) => {
     const id = req.query.id;
+    const videoUrl = `https://www.youtube.com/watch?v=${id}`;
     let fallbackTriggered = false;
 
     const startFallback = async () => {
@@ -69,43 +87,33 @@ app.get('/api/stream', async (req, res) => {
                     }
                     return d.data.pipe(res);
                 }
-            } catch (err) {
-                console.error(`Fallback engine ${instance} failed`);
-            }
+            } catch (err) {}
         }
         if (!res.headersSent) res.status(500).end();
     };
 
     try {
-        const y = spawn(YT_DLP_PATH, ['-f', 'ba[ext=m4a]/ba', '-o', '-', `https://www.youtube.com/watch?v=${id}`]);
-        
-        y.stdout.on('data', () => {
-            if (!res.headersSent) res.setHeader('Content-Type', 'audio/mp4');
-        });
+        const streamOptions = {
+            filter: 'audioonly',
+            quality: 'highestaudio',
+            highWaterMark: 1 << 25 // 32MB buffer
+        };
 
-        y.stdout.pipe(res, { end: false });
-        
-        y.on('error', (err) => {
-            console.error("yt-dlp spawn error:", err);
-            startFallback();
-        });
+        if (ytdlAgent) streamOptions.agent = ytdlAgent;
 
-        y.on('close', (code) => {
-            if (code !== 0) {
-                console.warn(`yt-dlp exited with code ${code}`);
+        res.setHeader('Content-Type', 'audio/mp4');
+        
+        ytdl(videoUrl, streamOptions)
+            .on('error', (err) => {
+                console.error("ytdl-core error:", err.message);
                 startFallback();
-            } else {
-                res.end();
-            }
-        });
+            })
+            .pipe(res);
 
-        req.on('close', () => {
-            y.kill();
-        });
     } catch (e) {
         console.error("Stream route error:", e);
         startFallback();
     }
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`Running on http://0.0.0.0:${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`Echonix Pure-Node Server running on port ${PORT}`));
