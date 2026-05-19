@@ -67,23 +67,29 @@ function App() {
 
   // --- ENGINE ROTATION LOGIC ---
   const fetchWithFallback = async (endpoint) => {
-    for (const engine of ENGINES) {
-      try {
-        let url = `${engine}${endpoint}`;
-        const isInternalApi = engine.includes('localhost') || engine.includes('onrender.com') || engine === '/api';
+    const currentHost = window.location.hostname;
+    // Prioritize the server the app is running on
+    const preferredEngines = [
+      `http://${currentHost}:5001/api`,
+      ...ENGINES.filter(e => !e.includes(currentHost) && !e.startsWith('/api'))
+    ];
 
-        if (isInternalApi) {
-          if (endpoint.startsWith('/search')) {
-            url = `${engine}/search${endpoint.split('/search')[1]}`;
-          } else if (endpoint.startsWith('/streams/')) {
-            const videoId = endpoint.split('/streams/')[1];
-            return { data: { isLocalStream: true, videoId }, engine };
-          }
+    for (const engine of preferredEngines) {
+      try {
+        const base = engine.endsWith('/') ? engine.slice(0, -1) : engine;
+        const isInternalApi = engine.includes('localhost') || engine.includes(currentHost) || engine === '/api';
+
+        if (isInternalApi && endpoint.startsWith('/streams/')) {
+          // Increase timeout for mobile networks
+          await axios.get(`${base}/search?q=test`, { timeout: 5000 });
+          const videoId = endpoint.split('/streams/')[1];
+          return { data: { isLocalStream: true, videoId }, engine: base };
         }
 
+        const url = `${base}${endpoint}`;
         const res = await axios.get(url, { timeout: 15000 });
-        setActiveEngine(engine);
-        return { data: res.data, engine };
+        setActiveEngine(base);
+        return { data: res.data, engine: base };
       } catch (err) {
         console.warn(`Engine ${engine} failed, rotating...`);
       }
