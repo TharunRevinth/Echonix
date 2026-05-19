@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, Play, Pause, SkipForward, SkipBack, Heart, 
-  Volume2, Shuffle, Repeat, Library, Home, User, Mic2, Cpu
+  Volume2, Shuffle, Repeat, Library, Home, User, Mic2, Cpu,
+  Radio, Headphones, CassetteTape, Music2
 } from 'lucide-react';
 import axios from 'axios';
 import './styles.css';
@@ -68,10 +69,9 @@ function App() {
   // --- ENGINE ROTATION LOGIC ---
   const fetchWithFallback = async (endpoint) => {
     const currentHost = window.location.hostname;
-    // Prioritize the server the app is running on
     const preferredEngines = [
       `http://${currentHost}:5001/api`,
-      ...ENGINES.filter(e => !e.includes(currentHost) && !e.startsWith('/api'))
+      ...ENGINES.filter(e => !e.includes(currentHost))
     ];
 
     for (const engine of preferredEngines) {
@@ -80,7 +80,6 @@ function App() {
         const isInternalApi = engine.includes('localhost') || engine.includes(currentHost) || engine === '/api';
 
         if (isInternalApi && endpoint.startsWith('/streams/')) {
-          // Increase timeout for mobile networks
           await axios.get(`${base}/search?q=test`, { timeout: 5000 });
           const videoId = endpoint.split('/streams/')[1];
           return { data: { isLocalStream: true, videoId }, engine: base };
@@ -188,22 +187,7 @@ function App() {
   // --- UTILS ---
   const cleanString = (str) => {
     if (!str) return "";
-    return str
-      .replace(/\(official video\)/gi, '')
-      .replace(/\(lyrics\)/gi, '')
-      .replace(/\(lyric video\)/gi, '')
-      .replace(/\[official audio\]/gi, '')
-      .replace(/\(official audio\)/gi, '')
-      .replace(/\[lyrics\]/gi, '')
-      .replace(/\(hd\)/gi, '')
-      .replace(/\(4k\)/gi, '')
-      .replace(/full video.*/gi, '')
-      .replace(/lyric video.*/gi, '')
-      .replace(/official video.*/gi, '')
-      .replace(/\|.*/gi, '') // Keep dash cleaning separate or remove it
-      .replace(/ft\..*/gi, '')
-      .replace(/feat\..*/gi, '')
-      .trim();
+    return str.replace(/\(official video\)/gi, '').replace(/\(lyrics\)/gi, '').replace(/\(lyric video\)/gi, '').replace(/\[official audio\]/gi, '').replace(/\(official audio\)/gi, '').replace(/\[lyrics\]/gi, '').replace(/\(hd\)/gi, '').replace(/\(4k\)/gi, '').replace(/full video.*/gi, '').replace(/lyric video.*/gi, '').replace(/official video.*/gi, '').replace(/\|.*/gi, '').replace(/ft\..*/gi, '').replace(/feat\..*/gi, '').trim();
   };
 
   const fetchArtistInfo = async (name) => {
@@ -267,114 +251,232 @@ function App() {
     return `${base}${url}`;
   };
 
-  const HomeView = () => (
-    <div className="view-content">
-      <div className="top-navigation">
-        <h1 className="main-greeting">Good afternoon{spotifyUser ? `, ${spotifyUser.display_name.split(' ')[0]}` : ''}</h1>
-        {token ? (
-          <div className="user-badge" onClick={logout}><User size={18} /><span>{spotifyUser?.display_name}</span></div>
-        ) : (
-          <button className="pro-btn" onClick={loginToSpotify}>LOGIN WITH SPOTIFY</button>
-        )}
-      </div>
-      <div className="hardware-shelf">
-        <h2>YOUR SPOTIFY ARCHIVE</h2>
-        <div className="shelf-grid">
-          {spotifyPlaylists.slice(0, 4).map((pl, i) => (
-            <div key={i} className="hardware-card">
-              <div className="card-image"><img src={pl.images[0]?.url} alt="art" /></div>
-              <h4>{pl.name}</h4>
-              <p>{pl.tracks.total} Tapes</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
+  const navItems = [
+    { icon: Home, label: 'Home', view: 'home' },
+    { icon: Search, label: 'Discover', view: 'search' },
+    { icon: Library, label: 'Collection', view: 'liked' },
+    { icon: CassetteTape, label: 'Spotify', view: 'spotify' },
+    { icon: Radio, label: 'Retro FM', view: 'radio' },
+    { icon: Heart, label: 'Favorites', view: 'liked' },
+  ];
 
   return (
-    <div className="echonix-app">
-      <aside className="hardware-sidebar">
-        <div className="branding">
-          <div className="logo">echonix</div>
-          <div className="system-status" style={{ color: activeEngine.includes('localhost') ? 'var(--analog-blue)' : 'var(--cassette-orange)' }}>
-            {activeEngine.includes('localhost') ? 'LOCAL_PIPELINE' : 
-             activeEngine.includes('onrender') ? 'RENDER_CLOUD' : 'PIPED_BACKUP'}
+    <div className="min-h-screen bg-[#1A2330] text-[#F7F1E8] flex overflow-hidden relative font-sans">
+      {/* VHS Texture */}
+      <div className="absolute inset-0 opacity-[0.035] pointer-events-none" style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,0.18) 1px, transparent 1px)', backgroundSize: '4px 4px' }} />
+
+      {/* Neon Glow */}
+      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-[#FF6B35]/10 blur-[140px] rounded-full" />
+      <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-[#5DA9E9]/10 blur-[140px] rounded-full" />
+
+      {/* Sidebar */}
+      <aside className="w-[260px] bg-[#121923]/95 border-r border-[#2A3647] p-6 flex flex-col justify-between z-10 backdrop-blur-xl">
+        <div>
+          <div className="flex items-center gap-4 mb-12">
+            <div className="w-14 h-14 rounded-[20px] bg-gradient-to-br from-[#FF6B35] to-[#FFB347] flex items-center justify-center shadow-[0_0_40px_rgba(255,107,53,0.35)]">
+              <Music2 className="w-6 h-6 text-[#10151D]" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-black tracking-[0.25em] text-[#FFF8F0]">ECHONIX</h1>
+              <p className="text-xs uppercase tracking-[0.35em] text-[#8EA8C3] mt-1">Stereo System 1989</p>
+            </div>
+          </div>
+
+          <nav className="space-y-4">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.label}
+                  onClick={() => setCurrentView(item.view)}
+                  className={`w-full flex items-center gap-4 px-5 py-4 rounded-[22px] border transition-all ${
+                    currentView === item.view
+                      ? 'bg-[#FF6B35] text-[#10151D] border-[#FFB347] shadow-[0_0_30px_rgba(255,107,53,0.35)]'
+                      : 'bg-[#18212D] border-[#283547] text-[#B8C6D8] hover:bg-[#1F2B3A] hover:border-[#5DA9E9]/40'
+                  }`}
+                >
+                  <Icon className="w-5 h-5" />
+                  <span className="font-semibold tracking-wide">{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        <div className="rounded-[28px] bg-gradient-to-br from-[#1D2734] to-[#141C26] border border-[#2D3A4D] p-5 shadow-[0_20px_40px_rgba(0,0,0,0.35)]">
+          <div className="flex items-center justify-between mb-4">
+            <span className="uppercase text-xs tracking-[0.3em] text-[#FFB347]">System</span>
+            <div className={`w-2 h-2 rounded-full ${activeEngine.includes('localhost') ? 'bg-green-400' : 'bg-orange-400'} animate-pulse`} />
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-[16px] bg-[#FF6B35]/10 border border-[#FF6B35]/20 flex items-center justify-center">
+              <User className="w-5 h-5 text-[#FF6B35]" />
+            </div>
+            <div>
+              <p className="font-semibold text-sm truncate w-24">{spotifyUser?.display_name || 'GUEST USER'}</p>
+              <p className="text-[10px] text-[#8EA8C3] uppercase tracking-tighter">{token ? 'Spotify Linked' : 'No Auth'}</p>
+            </div>
           </div>
         </div>
-        <nav className="nav-links">
-          <div className={`nav-link ${currentView === 'home' ? 'active' : ''}`} onClick={() => setCurrentView('home')}><Home size={22} /> <span>Home</span></div>
-          <div className={`nav-link ${currentView === 'search' ? 'active' : ''}`} onClick={() => setCurrentView('search')}><Search size={22} /> <span>Search</span></div>
-          <div className={`nav-link ${currentView === 'library' ? 'active' : ''}`} onClick={() => setCurrentView('library')}><Library size={22} /> <span>Your Library</span></div>
-        </nav>
       </aside>
 
-      <main className="main-viewport">
-        {currentView === 'home' && <HomeView />}
-        {currentView === 'search' && (
-          <div className="view-content">
-            <div className="search-hardware">
-              <Search color="var(--cassette-orange)" />
-              <input placeholder="SCAN VIBES..." value={query} onChange={(e)=>setQuery(e.target.value)} onKeyDown={(e)=>e.key==='Enter'&&handleSearch()}/>
-            </div>
-            <div className="shelf-grid">
-              {searchResults.map((s, i) => (
-                <div key={i} className="hardware-card" onClick={() => playTrack(s)}>
-                  <div className="card-image"><img src={getImageUrl(s)} alt="art" /></div>
-                  <h4>{s.title}</h4>
+      {/* Main Content */}
+      <main className="flex-1 overflow-y-auto px-10 py-8 bg-[radial-gradient(circle_at_top,#243244_0%,#1A2330_65%)] z-10 custom-scrollbar">
+        {/* Header / Hero */}
+        <div className="flex items-center justify-between mb-10">
+          <div>
+            <p className="uppercase tracking-[0.35em] text-[#8EA8C3] text-sm mb-3">Analog Experience</p>
+            <h2 className="text-7xl font-black leading-[0.9] text-[#FFF8F0]">
+              {currentView === 'search' ? 'SEARCH' : currentView === 'liked' ? 'FAVORITE' : 'MIDNIGHT'}<br />{currentView === 'search' ? 'VIBES.' : currentView === 'liked' ? 'TAPES.' : 'DRIVE.'}
+            </h2>
+          </div>
+
+          <div className={`w-[180px] h-[180px] rounded-full bg-[linear-gradient(145deg,#D8DEE7,#7E8DA1)] border-[12px] border-[#0E141B] shadow-[0_30px_80px_rgba(0,0,0,0.55)] flex items-center justify-center ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '12s' }}>
+            {currentTrack ? (
+              <img src={getImageUrl(currentTrack)} className="w-full h-full rounded-full object-cover p-1" alt="disc" />
+            ) : (
+              <div className="w-[70px] h-[70px] rounded-full bg-[#FF6B35] border-[10px] border-[#1A2330]" />
+            )}
+          </div>
+        </div>
+
+        {/* Dynamic Views */}
+        {currentView === 'home' && (
+          <section className="space-y-10">
+            <div className="grid grid-cols-2 gap-6">
+              {spotifyPlaylists.slice(0, 4).map((pl, i) => (
+                <div key={i} className="flex items-center gap-4 bg-[#1A222D] p-4 rounded-[24px] border border-[#2E3C4F] hover:border-[#FF6B35] transition-all cursor-pointer">
+                  <img src={pl.images[0]?.url} className="w-16 h-16 rounded-xl" alt="playlist" />
+                  <div>
+                    <h4 className="font-bold">{pl.name}</h4>
+                    <p className="text-xs text-[#8EA8C3]">{pl.tracks.total} Tracks</p>
+                  </div>
                 </div>
               ))}
             </div>
-          </div>
+          </section>
+        )}
+
+        {currentView === 'search' && (
+          <section>
+             <form onSubmit={handleSearch} className="mb-8 relative">
+                <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-[#8EA8C3] w-5 h-5" />
+                <input 
+                  className="w-full bg-[#1A222D] border-2 border-[#2E3C4F] rounded-[30px] py-6 pl-16 pr-8 text-xl focus:border-[#FF6B35] outline-none transition-all"
+                  placeholder="SCAN THE MULTIVERSE FOR TUNES..."
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+             </form>
+             <div className="space-y-4">
+                {searchResults.map((track) => (
+                  <div key={track.id} onClick={() => playTrack(track)} className="group flex items-center justify-between rounded-[26px] bg-[#1A222D] border border-[#2E3C4F] px-6 py-5 hover:bg-[#202A37] hover:border-[#FF6B35]/30 transition-all cursor-pointer">
+                    <div className="flex items-center gap-5">
+                      <img src={getImageUrl(track)} className="w-12 h-12 rounded-xl object-cover" alt="art" />
+                      <div>
+                        <h4 className="font-semibold text-lg text-[#F7F1E8] group-hover:text-[#FFB347] transition-colors line-clamp-1">{track.title}</h4>
+                        <p className="text-sm text-[#8EA8C3]">{track.uploaderName}</p>
+                      </div>
+                    </div>
+                    <Play className="w-5 h-5 text-[#8EA8C3] group-hover:text-[#FF6B35]" />
+                  </div>
+                ))}
+             </div>
+          </section>
+        )}
+
+        {currentView === 'liked' && (
+          <section className="space-y-4">
+            {likedSongs.map((track) => (
+              <div key={track.url} onClick={() => playTrack(track)} className="group flex items-center justify-between rounded-[26px] bg-[#1A222D] border border-[#2E3C4F] px-6 py-5 hover:bg-[#202A37] hover:border-[#FF6B35]/30 transition-all cursor-pointer">
+                <div className="flex items-center gap-5">
+                  <img src={getImageUrl(track)} className="w-12 h-12 rounded-xl object-cover" alt="art" />
+                  <div>
+                    <h4 className="font-semibold text-lg text-[#F7F1E8] group-hover:text-[#FFB347] transition-colors line-clamp-1">{track.title}</h4>
+                    <p className="text-sm text-[#8EA8C3]">{track.uploaderName}</p>
+                  </div>
+                </div>
+                <Play className="w-5 h-5 text-[#8EA8C3] group-hover:text-[#FF6B35]" />
+              </div>
+            ))}
+            {likedSongs.length === 0 && <p className="text-center text-[#8EA8C3] py-20">NO FAVORITE TAPES IN STORAGE.</p>}
+          </section>
+        )}
+
+        {/* Hero Player (Always visible if track playing) */}
+        {currentTrack && (
+          <section className="rounded-[40px] bg-gradient-to-br from-[#202B39] to-[#141B24] border border-[#304055] overflow-hidden shadow-[0_30px_80px_rgba(0,0,0,0.45)] my-10 transition-all">
+            <div className="h-10 bg-[#FF6B35] flex items-center px-8 text-[#10151D] font-black tracking-[0.35em] text-xs">
+              ECHONIX CASSETTE PLAYER \u2022 {activeEngine.includes('localhost') ? 'LOCAL_FEED' : 'CLOUD_LINK'}
+            </div>
+            <div className="grid grid-cols-[300px_1fr] gap-10 p-8 items-center">
+              <div className="relative h-[200px] rounded-[30px] bg-gradient-to-br from-[#F3D8B8] to-[#B89A7A] border-[8px] border-[#2A2119] shadow-[0_20px_60px_rgba(0,0,0,0.4)] overflow-hidden">
+                 <div className="absolute top-4 left-4 right-4 h-10 rounded-xl bg-[#FFF4E8] border border-dashed border-[#8C6A4D] flex items-center justify-center text-[#B55B2D] font-black tracking-[0.2em] text-xs">
+                    SIDE A \u2022 {cleanString(currentTrack.title).substring(0, 15)}...
+                 </div>
+                 <div className="absolute inset-0 flex items-center justify-center gap-12 mt-6">
+                    {[0, 1].map((x) => (
+                      <div key={x} className={`w-20 h-20 rounded-full border-[8px] border-[#2A2119] bg-[#F8EFE5] flex items-center justify-center ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '6s' }}>
+                        <div className="w-8 h-8 rounded-full bg-[#FF6B35] border-4 border-[#2A2119]" />
+                      </div>
+                    ))}
+                 </div>
+              </div>
+              <div>
+                <h3 className="text-4xl font-black text-[#FFF8F0] leading-tight mb-2 line-clamp-2 uppercase">{currentTrack.title}</h3>
+                <p className="text-[#AAB9CA] text-lg mb-6">{currentTrack.uploaderName}</p>
+                <div className="mb-2">
+                  <div className="h-2 rounded-full bg-[#263343] overflow-hidden">
+                    <div className="h-full bg-[#FF6B35] transition-all duration-300" style={{ width: `${(currentTime/duration)*100}%` }} />
+                  </div>
+                </div>
+                <div className="flex justify-between text-xs text-[#8EA8C3] mb-6">
+                  <span>{formatTime(currentTime)}</span>
+                  <span>{formatTime(duration)}</span>
+                </div>
+                <div className="flex items-center gap-6">
+                  <button onClick={() => setIsPlaying(!isPlaying)} className="w-16 h-16 rounded-[24px] bg-[#FF6B35] text-[#10151D] flex items-center justify-center shadow-[0_0_40px_rgba(255,107,53,0.4)] hover:scale-[1.05] transition-all">
+                    {isPlaying ? <Pause className="w-8 h-8 fill-current" /> : <Play className="w-8 h-8 fill-current ml-1" />}
+                  </button>
+                  <Heart onClick={() => toggleLike(currentTrack)} className={`w-8 h-8 cursor-pointer ${likedSongs.find(s => s.url === currentTrack.url) ? 'text-[#FF6B35] fill-current' : 'text-[#8EA8C3]'}`} />
+                </div>
+              </div>
+            </div>
+          </section>
         )}
       </main>
 
-      <div className={`echo-drawer ${isAiPanelOpen ? 'open' : ''}`}>
-        <div className="drawer-header"><h2>ECHO ANALYZER</h2><Cpu size={24} color="var(--cassette-orange)" /></div>
-        <div className="lyrics-vfd">{lyrics}</div>
-        <button className="echo-activate-btn" onClick={explainLyrics}>ACTIVATE ECHO AI</button>
-        <div className="echo-output">{explanation}</div>
-      </div>
+      {/* Right Panel - AI & Info */}
+      <aside className="w-[340px] bg-[#121923]/95 border-l border-[#2A3647] p-6 flex flex-col gap-6 z-10 backdrop-blur-xl">
+        <div className="rounded-[32px] bg-gradient-to-br from-[#1C2531] to-[#141B24] border border-[#2D3A4D] p-6 shadow-[0_25px_60px_rgba(0,0,0,0.35)]">
+           <h3 className="text-xl font-black text-[#FFF8F0] mb-4 flex items-center gap-2"><Cpu className="w-5 h-5 text-[#FF6B35]" /> AI ANALYZER</h3>
+           <div className="h-48 overflow-y-auto text-xs font-mono text-[#8EA8C3] leading-relaxed mb-6 custom-scrollbar pr-2 whitespace-pre-wrap">
+              {explanation || "SELECT A TAPE TO START AI ANALYSIS..."}
+           </div>
+           <button onClick={explainLyrics} className="w-full bg-[#FF6B35] text-[#10151D] font-black py-4 rounded-2xl shadow-[0_0_20px_rgba(255,107,53,0.3)] hover:bg-[#FFB347] transition-all">
+              ACTIVATE ECHO AI
+           </button>
+        </div>
 
-      <footer className="hardware-player">
-        <div className="now-playing-deck">
-          {currentTrack ? (
-            <>
-              <div className={`disc-container ${isPlaying ? 'spinning' : ''}`}>
-                <img src={getImageUrl(currentTrack)} className="walkman-disc" alt="art" />
-                <div className="disc-spindle"></div>
-              </div>
-              <div className="deck-meta">
-                <div className="title-text">{currentTrack.title}</div>
-                <div className="artist-text">{currentTrack.uploaderName}</div>
-              </div>
-              <Heart 
-                size={20} 
-                fill={likedSongs.find(s=>s.url===currentTrack.url)?"var(--cassette-orange)":"none"} 
-                color={likedSongs.find(s=>s.url===currentTrack.url)?"var(--cassette-orange)":"currentColor"}
-                style={{ cursor: 'pointer', marginLeft: 'auto' }}
-                onClick={()=>toggleLike(currentTrack)} 
-              />
-            </>
-          ) : <div className="deck-idle">NO TAPE</div>}
+        <div className="flex-1 rounded-[32px] bg-[#1A222D] border border-[#2E3C4F] p-6 shadow-[0_20px_50px_rgba(0,0,0,0.3)] flex flex-col overflow-hidden">
+          <h3 className="text-xl font-black text-[#FFF8F0] mb-4 flex items-center gap-2"><Mic2 className="w-5 h-5 text-[#FF6B35]" /> TAPE LYRICS</h3>
+          <div className="flex-1 overflow-y-auto text-sm font-medium text-[#F7F1E8] italic custom-scrollbar pr-2 whitespace-pre-wrap">
+            {lyrics || "SCANNING..."}
+          </div>
         </div>
-        <div className="playback-center">
-          <div className="physical-buttons"><Shuffle size={18}/><SkipBack size={24}/><button className="play-trigger" onClick={() => setIsPlaying(!isPlaying)}>{isPlaying ? <Pause fill="black" /> : <Play fill="black" />}</button><SkipForward size={24}/><Repeat size={18}/></div>
-          <div className="analog-seek"><span className="vfd-time">{formatTime(currentTime)}</span><div className="seek-track"><div className="seek-fill" style={{ width: `${(currentTime/duration)*100}%` }}></div></div><span className="vfd-time">{formatTime(duration)}</span></div>
-        </div>
-        <div className="utility-deck"><Mic2 onClick={()=>setIsAiPanelOpen(!isAiPanelOpen)}/><Volume2 /></div>
-        <audio 
-          ref={audioRef} 
-          src={currentTrack?.streamUrl} 
-          autoPlay 
-          preload="auto"
-          playsInline
-          onPlay={() => setIsPlaying(true)} 
-          onPause={() => setIsPlaying(false)} 
-          onTimeUpdate={(e)=>setCurrentTime(e.target.currentTime)} 
-          onLoadedMetadata={(e)=>setDuration(e.target.duration)}
-        />
-      </footer>
+      </aside>
+
+      <audio 
+        ref={audioRef} 
+        src={currentTrack?.streamUrl} 
+        autoPlay 
+        preload="auto"
+        playsInline
+        onPlay={() => setIsPlaying(true)} 
+        onPause={() => setIsPlaying(false)} 
+        onTimeUpdate={(e)=>setCurrentTime(e.target.currentTime)} 
+        onLoadedMetadata={(e)=>setDuration(e.target.duration)}
+      />
     </div>
   );
 }

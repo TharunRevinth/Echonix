@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700&family=Plus+Jakarta+Sans:wght@400;600;700&family=Orbitron:wght@400;700&family=VT323&family=Audiowide&display=swap');
 
 :root {
@@ -307,15 +311,18 @@ body::after {
   pointer-events: none;
 }
 
-@keyframes rotateDisc {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
 }
-
-.deck-meta {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #2D3A4D;
+  border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #FF6B35;
 }
 
 .title-text {
