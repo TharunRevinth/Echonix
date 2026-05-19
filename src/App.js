@@ -50,7 +50,7 @@ function App() {
   const [searchResults, setSearchResults] = useState([]);
   const [currentTrack, setCurrentTrack] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [lyrics, setLyrics] = useState('');
+  const [lyrics, setLyrics] = useState([]);
   const [artistInfo, setArtistInfo] = useState(null);
   const [explanation, setExplanation] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -62,10 +62,35 @@ function App() {
   const [currentIndex, setCurrentIndex] = useState(-1);
   
   const audioRef = useRef(null);
+  const lyricsRef = useRef(null);
   const [likedSongs, setLikedSongs] = useState(() => JSON.parse(localStorage.getItem('likedSongs') || '[]'));
   const [localTapes, setLocalTapes] = useState(() => JSON.parse(localStorage.getItem('localTapes') || '[]'));
+  const [recentlyPlayed, setRecentlyPlayed] = useState(() => JSON.parse(localStorage.getItem('recentlyPlayed') || '[]'));
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+
+  // Auto-scroll lyrics based on progress
+  useEffect(() => {
+    if (lyricsRef.current && lyrics.length > 0) {
+      // Find the current active line based on timestamps
+      const activeIndex = lyrics.reduce((acc, line, idx) => {
+        if (line.time !== -1 && line.time <= currentTime) return idx;
+        return acc;
+      }, 0);
+
+      const lineElements = lyricsRef.current.children;
+      if (lineElements[activeIndex]) {
+        const targetElement = lineElements[activeIndex];
+        const containerHeight = lyricsRef.current.clientHeight;
+        const targetTop = targetElement.offsetTop;
+
+        lyricsRef.current.scrollTo({
+          top: targetTop - (containerHeight / 3),
+          behavior: 'smooth'
+        });
+      }
+    }
+  }, [currentTime, lyrics]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -95,7 +120,6 @@ function App() {
         const isInternalApi = engine.includes('localhost') || engine.includes(currentHost) || engine === '/api';
 
         if (isInternalApi && endpoint.startsWith('/streams/')) {
-          await axios.get(`${base}/search?q=test`, { timeout: 5000 });
           const videoId = endpoint.split('/streams/')[1];
           return { data: { isLocalStream: true, videoId }, engine: base };
         }
@@ -109,6 +133,30 @@ function App() {
       }
     }
     throw new Error("ALL ENGINES OFFLINE");
+  };
+
+  const filterMusicResults = (items) => {
+    if (!items) return [];
+    return items.filter(v => {
+      const title = (v.title || "").toLowerCase();
+      const channel = (v.uploaderName || v.author?.name || "").toLowerCase();
+      const duration = v.duration || v.seconds || 0;
+      
+      const isTooLong = duration > 540;
+      const isTooShort = duration < 60;
+      
+      const nonMusicKeywords = [
+        'vlog', 'podcast', 'tutorial', 'full episode', 'trailer', 
+        'teaser', 'review', 'reaction', 'interview', 'making of', 
+        'behind the scenes', 'blockbuster', 'promo', 'movie talk',
+        'preview', 'unboxing', 'live stream'
+      ];
+
+      const isNonMusic = nonMusicKeywords.some(keyword => title.includes(keyword));
+      const isReviewChannel = channel.includes('review') || channel.includes('news') || channel.includes('fans club');
+      
+      return !isTooLong && !isTooShort && !isNonMusic && !isReviewChannel;
+    });
   };
 
   // --- SEARCH & PLAYBACK ---
@@ -134,18 +182,18 @@ function App() {
         const suggestionText = res.data.choices?.[0]?.message?.content;
         if (suggestionText) {
           const suggestions = suggestionText.split(',').map(s => s.trim());
-          const allResults = [];
+          let allResults = [];
           for (const s of suggestions) {
              try {
                const { data, engine } = await fetchWithFallback(`/search?q=${encodeURIComponent(s)}&filter=music_songs`);
                if (data.items?.[0]) allResults.push({ ...data.items[0], engine });
              } catch (err) {}
           }
-          setSearchResults(allResults);
+          setSearchResults(filterMusicResults(allResults));
         }
       } catch (e) {
         console.error("AI Search Error:", e.response?.data || e.message);
-        alert(`AI CURATOR OFFLINE: ${e.response?.status || 'Error'}`);
+        alert(`AI CURATOR OFFLINE: ${e.response?.data?.error?.message || e.message}`);
       } finally {
         setIsAiLoading(false);
       }
@@ -155,7 +203,7 @@ function App() {
     try {
       const { data, engine } = await fetchWithFallback(`/search?q=${encodeURIComponent(query)}&filter=music_songs`);
       const taggedResults = data.items.map(item => ({ ...item, engine }));
-      setSearchResults(taggedResults);
+      setSearchResults(filterMusicResults(taggedResults));
     } catch (err) { alert("ERROR: SEARCH ENGINE OFFLINE"); }
   };
 
@@ -198,6 +246,12 @@ function App() {
       setIsPlaying(true);
       fetchLyrics(track.title, track.uploaderName);
       fetchArtistInfo(track.uploaderName);
+
+      // Update Recently Played
+      setRecentlyPlayed(prev => {
+        const filtered = prev.filter(t => t.url !== track.url);
+        return [track, ...filtered].slice(0, 50); // Keep last 50
+      });
     } catch (err) { 
       console.error("Playback Error:", err);
       alert("ERROR: PLAYBACK ENGINE OFFLINE"); 
@@ -235,9 +289,47 @@ function App() {
   };
 
   // --- UTILS ---
+  const parseLRC = (lrcText) => {
+    const lines = lrcText.split('\n');
+    const result = [];
+    const timeRegex = /\[(\d+):(\d+\.?\d*)\]/;
+    
+    lines.forEach(line => {
+      const match = timeRegex.exec(line);
+      if (match) {
+        const minutes = parseInt(match[1]);
+        const seconds = parseFloat(match[2]);
+        const text = line.replace(timeRegex, '').trim();
+        if (text) result.push({ time: minutes * 60 + seconds, text });
+      } else if (line.trim().length > 20) {
+        // Fallback for lines without timestamps (estimated)
+        result.push({ time: -1, text: line.trim() });
+      }
+    });
+    return result;
+  };
+
   const cleanString = (str) => {
     if (!str) return "";
-    return str.replace(/\(official video\)/gi, '').replace(/\(lyrics\)/gi, '').replace(/\(lyric video\)/gi, '').replace(/\[official audio\]/gi, '').replace(/\(official audio\)/gi, '').replace(/\[lyrics\]/gi, '').replace(/\(hd\)/gi, '').replace(/\(4k\)/gi, '').replace(/full video.*/gi, '').replace(/lyric video.*/gi, '').replace(/official video.*/gi, '').replace(/\|.*/gi, '').replace(/ft\..*/gi, '').replace(/feat\..*/gi, '').trim();
+    return str
+      .replace(/\(official video\)/gi, '')
+      .replace(/\(lyrics\)/gi, '')
+      .replace(/\(lyric video\)/gi, '')
+      .replace(/\[official audio\]/gi, '')
+      .replace(/\(official audio\)/gi, '')
+      .replace(/\[lyrics\]/gi, '')
+      .replace(/\(hd\)/gi, '')
+      .replace(/\(4k\)/gi, '')
+      .replace(/\(8k\)/gi, '')
+      .replace(/full video.*/gi, '')
+      .replace(/lyric video.*/gi, '')
+      .replace(/official video.*/gi, '')
+      .replace(/\|.*/gi, '')
+      .replace(/ft\..*/gi, '')
+      .replace(/feat\..*/gi, '')
+      .replace(/ - Topic$/gi, '')
+      .replace(/\[.*\]/g, '')
+      .trim();
   };
 
   const fetchArtistInfo = async (name) => {
@@ -250,15 +342,87 @@ function App() {
     } catch (e) {}
   };
 
+  const lyricsAbortController = useRef(null);
+
   const fetchLyrics = async (t, a) => {
+    // Cancel previous request if still running
+    if (lyricsAbortController.current) lyricsAbortController.current.abort();
+    lyricsAbortController.current = new AbortController();
+
     const cleanT = cleanString(t);
     const cleanA = cleanString(a);
-    setLyrics("SCANNING TAPE...");
+    setLyrics([{ time: 0, text: "SCANNING TAPE..." }]);
+    
+    // Try primary API first
     try {
-      const res = await axios.get(`https://api.lyrics.ovh/v1/${encodeURIComponent(cleanA)}/${encodeURIComponent(cleanT)}`);
-      if (res.data.lyrics) { setLyrics(res.data.lyrics); return; }
-    } catch (e) {}
-    setLyrics("NO TAPE DATA FOUND.");
+      const res = await axios.get(`https://api.lyrics.ovh/v1/${encodeURIComponent(cleanA)}/${encodeURIComponent(cleanT)}`, {
+        signal: lyricsAbortController.current.signal
+      });
+      if (res.data.lyrics) { 
+        const parsed = res.data.lyrics.split('\n').filter(l => l.trim()).map((l, i, arr) => ({
+          time: (i / arr.length) * (duration || 180), // Estimate if no LRC
+          text: l.trim()
+        }));
+        setLyrics(parsed); 
+        return; 
+      }
+    } catch (e) {
+      if (axios.isCancel(e)) return;
+      console.warn("Primary lyrics API failed, attempting AI recovery...");
+    }
+
+    // AI Fallback: Use OpenRouter to find/reconstruct lyrics with timestamps
+    try {
+      setLyrics([{ time: 0, text: "AI RECONSTRUCTING TAPE DATA (TIMED)..." }]);
+      const res = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
+        model: "google/gemini-2.0-flash-001",
+        messages: [{ 
+          role: "user", 
+          content: `You are a Retro Music Data Recovery system. 
+          Your task is to RECONSTRUCT the lyrics for "${cleanT}" by "${cleanA}" in LRC format with [mm:ss.xx] timestamps.
+          
+          Requirements:
+          1. Provide accurate [mm:ss.xx] timestamps for EVERY line.
+          2. Return ONLY the LRC text.
+          3. If impossible, respond ONLY with "DATA_ERROR".` 
+        }]
+      }, {
+        headers: { 
+          "Authorization": `Bearer ${OPENROUTER_KEY}`,
+          "HTTP-Referer": window.location.origin,
+          "X-Title": "Echonix Stereo System"
+        },
+        signal: lyricsAbortController.current.signal
+      });
+
+      const aiLyrics = res.data.choices?.[0]?.message?.content;
+      
+      if (!aiLyrics || aiLyrics.includes("DATA_ERROR")) {
+        setLyrics([{ time: 0, text: "NO TAPE DATA FOUND." }]);
+        return;
+      }
+
+      setLyrics([{ time: 0, text: "DECODING ANALOG SIGNAL..." }]);
+      const parsed = parseLRC(aiLyrics);
+      
+      if (parsed.length > 0) {
+        // If parsed correctly, use it
+        setLyrics(parsed);
+      } else if (aiLyrics.length > 30) {
+        // If parsing failed but we got a lot of text, it's probably plain text lyrics
+        const plainTextLines = aiLyrics.split('\n').filter(l => l.trim().length > 0).map((l, i, arr) => ({
+          time: (i / arr.length) * (duration || 180),
+          text: l.trim()
+        }));
+        setLyrics(plainTextLines);
+      } else {
+        setLyrics([{ time: 0, text: "NO TAPE DATA FOUND." }]);
+      }
+    } catch (err) {
+      if (axios.isCancel(err)) return;
+      console.error("AI Lyrics Fallback Error:", err);
+      setLyrics([{ time: 0, text: "NO TAPE DATA FOUND." }]);
+    }
   };
 
   const explainLyrics = async () => {
@@ -302,6 +466,10 @@ function App() {
     localStorage.setItem('localTapes', JSON.stringify(localTapes));
   }, [localTapes]);
 
+  useEffect(() => {
+    localStorage.setItem('recentlyPlayed', JSON.stringify(recentlyPlayed));
+  }, [recentlyPlayed]);
+
   const toggleLike = (track) => {
     const isLiked = likedSongs.find(s => s.url === track.url);
     if (isLiked) setLikedSongs(likedSongs.filter(s => s.url !== track.url));
@@ -331,6 +499,7 @@ function App() {
     { icon: ListMusic, label: 'Queue', view: 'queue' },
     { icon: CassetteTape, label: 'Collection', view: 'liked' },
     { icon: Radio, label: 'Retro FM', view: 'radio' },
+    { icon: Headphones, label: 'Recently Played', view: 'history' },
   ];
 
   return (
@@ -385,12 +554,16 @@ function App() {
             <Headphones className="w-4 h-4 text-[#FF6B35]" />
           </div>
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-[16px] bg-[#FF6B35]/10 border border-[#FF6B35]/20 flex items-center justify-center">
-              <Headphones className="w-5 h-5 text-[#FF6B35]" />
+            <div className="w-16 h-10 rounded-lg bg-[#2A2119] border-2 border-[#3D2E24] flex items-center justify-center gap-2 px-2 relative overflow-hidden shadow-inner">
+              {[0, 1].map((x) => (
+                <div key={x} className={`w-4 h-4 rounded-full border-2 border-[#B89A7A] bg-[#F8EFE5] flex items-center justify-center ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '4s' }}>
+                  <div className="w-1 h-1 rounded-full bg-[#2A2119]" />
+                </div>
+              ))}
             </div>
             <div>
               <p className="font-semibold text-sm">Sony WM-FX195</p>
-              <p className="text-[10px] text-[#8EA8C3] uppercase tracking-tighter">Tape Mode Active</p>
+              <p className="text-[10px] text-[#8EA8C3] uppercase tracking-tighter">{isPlaying ? 'Playing Tape' : 'Tape Paused'}</p>
             </div>
           </div>
         </div>
@@ -513,32 +686,68 @@ function App() {
 
         {/* Dynamic List Content */}
         {currentView === 'home' && (
-          <section>
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-3xl font-black text-[#FFF8F0]">Recent Local Tapes</h3>
-            </div>
-            <div className="grid grid-cols-2 gap-6 mb-12">
-               {localTapes.slice(0, 4).map((track, i) => (
-                <div key={i} onClick={() => playTrack(track, localTapes)} className="group flex items-center gap-4 bg-[#1A222D] p-4 rounded-[24px] border border-[#2E3C4F] hover:border-[#FF6B35] transition-all cursor-pointer">
-                  <div className="relative w-20 h-20 shrink-0">
-                    <img src={getImageUrl(track)} className="w-full h-full rounded-xl object-cover" alt="tape" />
-                    <div className="absolute inset-0 bg-[#FF6B35]/0 group-hover:bg-[#FF6B35]/40 rounded-xl flex items-center justify-center transition-all">
-                      <Play className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 fill-current" />
+          <>
+            <section className="mb-12">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-3xl font-black text-[#FFF8F0]">Recently Played</h3>
+                {recentlyPlayed.length > 4 && (
+                  <button 
+                    onClick={() => setCurrentView('history')}
+                    className="text-[#FF6B35] font-bold uppercase tracking-widest text-xs hover:underline"
+                  >
+                    See All
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-6">
+                {recentlyPlayed.length > 0 ? recentlyPlayed.slice(0, 4).map((track, i) => (
+                  <div key={i} onClick={() => playTrack(track, recentlyPlayed)} className="group flex items-center gap-4 bg-[#1A222D] p-4 rounded-[24px] border border-[#2E3C4F] hover:border-[#FF6B35] transition-all cursor-pointer">
+                    <div className="relative w-20 h-20 shrink-0">
+                      <img src={getImageUrl(track)} className="w-full h-full rounded-xl object-cover" alt="tape" />
+                      <div className="absolute inset-0 bg-[#FF6B35]/0 group-hover:bg-[#FF6B35]/40 rounded-xl flex items-center justify-center transition-all">
+                        <Play className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 fill-current" />
+                      </div>
+                    </div>
+                    <div className="overflow-hidden">
+                      <h4 className="font-bold text-lg line-clamp-1 group-hover:text-[#FFB347] transition-colors">{track.title}</h4>
+                      <p className="text-xs text-[#8EA8C3] uppercase tracking-widest truncate">{track.uploaderName}</p>
                     </div>
                   </div>
-                  <div className="overflow-hidden">
-                    <h4 className="font-bold text-lg line-clamp-1 group-hover:text-[#FFB347] transition-colors">{track.title}</h4>
-                    <p className="text-xs text-[#8EA8C3] uppercase tracking-widest truncate">{track.uploaderName}</p>
+                )) : (
+                  <div className="col-span-2 border-2 border-dashed border-[#2E3C4F] rounded-[24px] py-10 text-center text-[#8EA8C3] font-bold uppercase tracking-widest">
+                    No recently played tapes.
                   </div>
-                </div>
-              ))}
-              {localTapes.length === 0 && (
-                <div className="col-span-2 border-2 border-dashed border-[#2E3C4F] rounded-[24px] py-10 text-center text-[#8EA8C3] font-bold uppercase tracking-widest">
-                  No Tapes Found. Start archiving to build your collection.
-                </div>
-              )}
-            </div>
-          </section>
+                )}
+              </div>
+            </section>
+
+            <section>
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-3xl font-black text-[#FFF8F0]">My Tape Archive</h3>
+              </div>
+              <div className="grid grid-cols-2 gap-6">
+                 {localTapes.slice(0, 4).map((track, i) => (
+                  <div key={i} onClick={() => playTrack(track, localTapes)} className="group flex items-center gap-4 bg-[#1A222D] p-4 rounded-[24px] border border-[#2E3C4F] hover:border-[#FF6B35] transition-all cursor-pointer">
+                    <div className="relative w-20 h-20 shrink-0">
+                      <img src={getImageUrl(track)} className="w-full h-full rounded-xl object-cover" alt="tape" />
+                      <div className="absolute inset-0 bg-[#FF6B35]/0 group-hover:bg-[#FF6B35]/40 rounded-xl flex items-center justify-center transition-all">
+                        <Play className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 fill-current" />
+                      </div>
+                    </div>
+                    <div className="overflow-hidden">
+                      <h4 className="font-bold text-lg line-clamp-1 group-hover:text-[#FFB347] transition-colors">{track.title}</h4>
+                      <p className="text-xs text-[#8EA8C3] uppercase tracking-widest truncate">{track.uploaderName}</p>
+                    </div>
+                  </div>
+                ))}
+                {localTapes.length === 0 && (
+                  <div className="col-span-2 border-2 border-dashed border-[#2E3C4F] rounded-[24px] py-10 text-center text-[#8EA8C3] font-bold uppercase tracking-widest">
+                    Archive is empty. Use the cassette icon to save tapes.
+                  </div>
+                )}
+              </div>
+            </section>
+          </>
         )}
 
         {currentView === 'search' && (
@@ -598,6 +807,56 @@ function App() {
           </section>
         )}
 
+        {currentView === 'history' && (
+          <section>
+            <div className="flex items-center justify-between mb-8">
+               <h3 className="text-3xl font-black text-[#FFF8F0]">Recently Played</h3>
+               <button 
+                 onClick={() => setRecentlyPlayed([])}
+                 className="px-6 py-3 rounded-full bg-[#243140] text-[#FF4D4D] font-bold uppercase tracking-widest text-xs hover:bg-[#FF4D4D] hover:text-[#10151D] transition-all"
+               >
+                 Clear History
+               </button>
+            </div>
+            <div className="space-y-4">
+               {recentlyPlayed.map((track, i) => (
+                 <div 
+                   key={track.url + i} 
+                   onClick={() => playTrack(track, recentlyPlayed)}
+                   className="group flex items-center justify-between rounded-[26px] border border-[#2E3C4F] bg-[#1A222D] px-6 py-5 hover:bg-[#202A37] hover:border-[#FF6B35]/30 transition-all cursor-pointer"
+                 >
+                   <div className="flex items-center gap-5">
+                     <div className="w-12 h-12 rounded-[16px] bg-[#243140] flex items-center justify-center text-[#8EA8C3] group-hover:bg-[#FF6B35] group-hover:text-[#10151D] transition-all">
+                       <Play className="w-4 h-4 fill-current" />
+                     </div>
+                     <div>
+                       <h4 className="font-semibold text-lg text-[#F7F1E8] group-hover:text-[#FFB347] transition-colors line-clamp-1">
+                         {track.title}
+                       </h4>
+                       <p className="text-sm text-[#8EA8C3]">{track.uploaderName}</p>
+                     </div>
+                   </div>
+                   <div className="flex items-center gap-4">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); addToQueue(track); }}
+                        className="p-3 rounded-full bg-[#243140] text-[#8EA8C3] hover:bg-[#FF6B35] hover:text-[#10151D] transition-all opacity-0 group-hover:opacity-100"
+                        title="Add to Queue"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </button>
+                      <span className="text-[#8EA8C3] font-mono text-sm">{formatTime(track.duration || 0)}</span>
+                   </div>
+                 </div>
+               ))}
+               {recentlyPlayed.length === 0 && (
+                 <div className="py-20 text-center border-2 border-dashed border-[#2E3C4F] rounded-[40px] text-[#8EA8C3] font-bold uppercase tracking-[0.2em]">
+                   History is Empty
+                 </div>
+               )}
+            </div>
+          </section>
+        )}
+
         {currentView === 'queue' && (
           <section>
             <div className="flex items-center justify-between mb-8">
@@ -645,6 +904,18 @@ function App() {
                  </div>
                )}
             </div>
+          </section>
+        )}
+
+        {currentView === 'radio' && (
+          <section className="flex flex-col items-center justify-center py-20">
+            <div className="w-24 h-24 rounded-full bg-[#FF6B35]/10 border-2 border-[#FF6B35] flex items-center justify-center mb-8 animate-pulse">
+              <Radio className="w-12 h-12 text-[#FF6B35]" />
+            </div>
+            <h3 className="text-4xl font-black text-[#FFF8F0] mb-4">RETRO FM</h3>
+            <p className="text-[#8EA8C3] uppercase tracking-[0.3em] text-center max-w-md">
+              Analog frequency scanning... The radio module is currently being calibrated for your region.
+            </p>
           </section>
         )}
 
@@ -726,10 +997,35 @@ function App() {
 
         <div className="h-[200px] rounded-[32px] bg-[#1A222D] border border-[#2E3C4F] p-6 shadow-[0_20px_50px_rgba(0,0,0,0.3)] flex flex-col overflow-hidden">
            <h3 className="text-xl font-black text-[#FFF8F0] mb-4 flex items-center gap-2"><Mic2 className="w-5 h-5 text-[#FF6B35]" /> Lyrics</h3>
-           <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 text-sm italic text-[#8EA8C3] leading-relaxed">
-              {lyrics || "Scanning Tape for Data..."}
+           <div
+             ref={lyricsRef}
+             className="flex-1 overflow-y-auto custom-scrollbar pr-2 text-sm italic leading-relaxed"
+           >
+              {lyrics.length > 0 ? lyrics.map((line, i) => {
+                const activeIndex = lyrics.reduce((acc, l, idx) => {
+                  if (l.time !== -1 && l.time <= currentTime) return idx;
+                  return acc;
+                }, 0);
+                const isActive = i === activeIndex;
+
+                return (
+                  <p 
+                    key={i} 
+                    className={`transition-all duration-500 mb-2 ${
+                      isActive 
+                        ? 'text-[#FF6B35] font-bold scale-105 origin-left drop-shadow-[0_0_8px_rgba(255,107,53,0.8)] opacity-100' 
+                        : 'text-[#8EA8C3] opacity-40'
+                    }`}
+                  >
+                    {line.text}
+                  </p>
+                );
+              }) : (
+                <p className="text-[#8EA8C3] opacity-40 italic">Scanning Tape for Data...</p>
+              )}
            </div>
         </div>
+
       </aside>
 
       <audio 
@@ -744,6 +1040,17 @@ function App() {
         onEnded={handleNext}
         onTimeUpdate={(e)=>setCurrentTime(e.target.currentTime)} 
         onLoadedMetadata={(e)=>setDuration(e.target.duration)}
+        onError={(e) => {
+          console.error("Audio Playback Error:", e);
+          if (currentTrack?.engine?.includes('localhost')) {
+            console.warn("Local stream failed, attempting to rotate engine...");
+            // Force a re-search/fetch with a different engine by clearing currentTrack 
+            // and letting the user retry or auto-triggering a fallback.
+            // For now, let's just alert a more helpful message.
+            alert("LOCAL DECK ERROR: ROTATING ANALOG HEADS...");
+            handleNext(); // Skip to next or we could implement a better retry logic
+          }
+        }}
       />
     </div>
   );

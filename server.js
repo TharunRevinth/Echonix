@@ -33,12 +33,40 @@ const PIPED_INSTANCES = [
 // --- SEARCH ENDPOINT ---
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
+    const filter = req.query.filter; // music_songs
     if (!query) return res.status(400).json({ error: "Missing query" });
 
     try {
-        // Search is safe and fast with yt-search
-        const results = await ytSearch(query);
-        const videos = results.videos.slice(0, 15);
+        // Enhance query for better music results if filter is set
+        const searchQuery = filter === 'music_songs' ? `${query} music` : query;
+        const results = await ytSearch(searchQuery);
+        
+        let videos = results.videos;
+
+        // If filtering for songs, remove very long videos, very short clips, and non-music keywords
+        if (filter === 'music_songs') {
+            videos = videos.filter(v => {
+                const title = v.title.toLowerCase();
+                const channel = v.author.name.toLowerCase();
+                
+                const isTooLong = v.seconds > 540; // Filter out anything over 9 mins
+                const isTooShort = v.seconds < 60; // Filter out clips/shorts under 1 minute
+                
+                const nonMusicKeywords = [
+                    'vlog', 'podcast', 'tutorial', 'full episode', 'trailer', 
+                    'teaser', 'review', 'reaction', 'interview', 'making of', 
+                    'behind the scenes', 'blockbuster', 'promo', 'movie talk',
+                    'preview', 'unboxing', 'live stream'
+                ];
+
+                const isNonMusic = nonMusicKeywords.some(keyword => title.includes(keyword));
+                const isReviewChannel = channel.includes('review') || channel.includes('news') || channel.includes('fans club');
+                
+                return !isTooLong && !isTooShort && !isNonMusic && !isReviewChannel;
+            });
+        }
+
+        videos = videos.slice(0, 15);
         
         return res.json({ 
             items: videos.map(v => ({ 
@@ -103,6 +131,8 @@ app.get('/api/stream', (req, res) => {
         '--no-playlist',
         '--no-warnings',
         '--force-ipv4',
+        '--no-part',
+        '--no-cache-dir',
         '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
     ];
 
@@ -113,19 +143,19 @@ app.get('/api/stream', (req, res) => {
 
     ytDlpProcess.stderr.on('data', (data) => {
         const msg = data.toString();
-        if (msg.includes('ERROR') || msg.includes('WARNING')) {
-            log(`[yt-dlp Log] ${msg.trim()}`);
+        if (msg.includes('ERROR')) {
+            log(`[yt-dlp Error] ${msg.trim()}`);
         }
     });
 
-    ytDlpProcess.on('close', (code) => {
-        if (code !== 0) {
-            log(`[Proxy] yt-dlp process exited with code ${code}`);
+    ytDlpProcess.on('close', (code, signal) => {
+        if (code !== 0 && signal !== 'SIGTERM' && signal !== 'SIGKILL') {
+            log(`[Proxy] yt-dlp process exited with code ${code} and signal ${signal}`);
             if (!res.headersSent) {
                 res.status(500).send("Playback engine failed");
             }
         } else {
-            log(`[Proxy] Stream complete for ${videoId}`);
+            log(`[Proxy] Stream closed for ${videoId} (${signal || 'Complete'})`);
         }
     });
 
