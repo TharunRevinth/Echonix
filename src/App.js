@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, Play, Pause, SkipForward, SkipBack, Heart, 
   Volume2, Shuffle, Repeat, Library, Home, User, Mic2, Cpu,
-  Radio, Headphones, CassetteTape, Music2, Plus, ListMusic
+  Radio, Headphones, CassetteTape, Music2, Plus, ListMusic, Download
 } from 'lucide-react';
 import axios from 'axios';
 import './styles.css';
@@ -60,6 +60,7 @@ function App() {
   
   const [queue, setQueue] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
+  const [isDownloading, setIsDownloading] = useState(false);
   
   const audioRef = useRef(null);
   const lyricsRef = useRef(null);
@@ -255,6 +256,20 @@ function App() {
     } catch (err) { 
       console.error("Playback Error:", err);
       alert("ERROR: PLAYBACK ENGINE OFFLINE"); 
+    }
+  };
+
+  const handleDownload = async (track) => {
+    try {
+      const videoId = track.id || track.url?.split('v=')[1];
+      const host = getHost();
+      const downloadUrl = `http://${host}:5001/api/download?id=${videoId}&title=${encodeURIComponent(track.title)}`;
+      
+      // Simple and robust way to trigger attachment downloads
+      window.location.href = downloadUrl;
+    } catch (err) {
+      console.error("Download Error:", err);
+      alert("DOWNLOAD ERROR: SYSTEM FAILURE");
     }
   };
 
@@ -666,6 +681,11 @@ function App() {
                 <div className="flex gap-4 items-center">
                   {currentTrack && (
                     <>
+                      <Download 
+                        onClick={() => handleDownload(currentTrack)} 
+                        className={`w-6 h-6 md:w-8 md:h-8 cursor-pointer transition-all ${isDownloading ? 'text-[#FFB347] animate-bounce' : 'text-[#8EA8C3] hover:text-[#FF6B35]'}`} 
+                        title="Download Tape"
+                      />
                       <CassetteTape 
                         onClick={() => toggleLocalTape(currentTrack)} 
                         className={`w-6 h-6 md:w-8 md:h-8 cursor-pointer transition-all ${localTapes.find(s => s.url === currentTrack.url) ? 'text-[#FF6B35] scale-110' : 'text-[#8EA8C3] hover:text-[#FFB347]'}`} 
@@ -793,6 +813,13 @@ function App() {
                     </div>
                     <div className="flex items-center gap-4">
                       <button 
+                        onClick={(e) => { e.stopPropagation(); handleDownload(track); }}
+                        className="p-3 rounded-full bg-[#243140] text-[#8EA8C3] hover:bg-[#FFB347] hover:text-[#10151D] transition-all opacity-0 group-hover:opacity-100"
+                        title="Download Tape"
+                      >
+                        <Download className="w-5 h-5" />
+                      </button>
+                      <button 
                         onClick={(e) => { e.stopPropagation(); addToQueue(track); }}
                         className="p-3 rounded-full bg-[#243140] text-[#8EA8C3] hover:bg-[#FF6B35] hover:text-[#10151D] transition-all opacity-0 group-hover:opacity-100"
                         title="Add to Queue"
@@ -837,6 +864,13 @@ function App() {
                      </div>
                    </div>
                    <div className="flex items-center gap-4">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleDownload(track); }}
+                        className="p-3 rounded-full bg-[#243140] text-[#8EA8C3] hover:bg-[#FFB347] hover:text-[#10151D] transition-all opacity-0 group-hover:opacity-100"
+                        title="Download Tape"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
                       <button 
                         onClick={(e) => { e.stopPropagation(); addToQueue(track); }}
                         className="p-3 rounded-full bg-[#243140] text-[#8EA8C3] hover:bg-[#FF6B35] hover:text-[#10151D] transition-all opacity-0 group-hover:opacity-100"
@@ -893,6 +927,13 @@ function App() {
                      </div>
                    </div>
                    <div className="flex items-center gap-4">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleDownload(track); }}
+                        className="p-3 rounded-full bg-[#243140] text-[#8EA8C3] hover:bg-[#FFB347] hover:text-[#10151D] transition-all opacity-0 group-hover:opacity-100"
+                        title="Download Tape"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
                       {currentIndex === i && <span className="px-3 py-1 rounded-full bg-[#FF6B35] text-[#10151D] text-[10px] font-black uppercase tracking-widest">Now Playing</span>}
                       <span className="text-[#8EA8C3] font-mono text-sm">{formatTime(track.duration || 0)}</span>
                    </div>
@@ -935,6 +976,13 @@ function App() {
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); handleDownload(track); }}
+                      className="p-3 rounded-full bg-[#243140] text-[#8EA8C3] hover:bg-[#FFB347] hover:text-[#10151D] transition-all opacity-0 group-hover:opacity-100"
+                      title="Download Tape"
+                    >
+                      <Download className="w-4 h-4" />
+                    </button>
                     <button 
                       onClick={(e) => { e.stopPropagation(); addToQueue(track); }}
                       className="p-3 rounded-full bg-[#243140] text-[#8EA8C3] hover:bg-[#FF6B35] hover:text-[#10151D] transition-all opacity-0 group-hover:opacity-100"

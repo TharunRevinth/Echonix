@@ -166,6 +166,58 @@ app.get('/api/stream', (req, res) => {
     });
 });
 
+// --- DOWNLOAD ENDPOINT ---
+app.get('/api/download', (req, res) => {
+    const videoId = req.query.id;
+    const title = req.query.title || 'audio';
+    if (!videoId) return res.status(400).send("Missing ID");
+
+    log(`[Download] Starting download for: ${videoId} (${title})`);
+
+    const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const filename = `${title.replace(/[^\w\s]/gi, '')}.mp3`;
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    // Use yt-dlp to convert to mp3 and pipe to response
+    const args = [
+        youtubeUrl,
+        '-f', 'bestaudio',
+        '--extract-audio',
+        '--audio-format', 'mp3',
+        '-o', '-',
+        '--no-playlist',
+        '--no-warnings',
+        '--force-ipv4',
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+    ];
+
+    const ytDlpProcess = spawn(YTDLP_PATH, args);
+
+    ytDlpProcess.stdout.pipe(res);
+
+    ytDlpProcess.stderr.on('data', (data) => {
+        const msg = data.toString();
+        if (msg.includes('ERROR')) {
+            log(`[Download Error] ${msg.trim()}`);
+        }
+    });
+
+    ytDlpProcess.on('close', (code) => {
+        if (code !== 0) {
+            log(`[Download] Process exited with code ${code}`);
+        } else {
+            log(`[Download] Completed for ${videoId}`);
+        }
+    });
+
+    req.on('close', () => {
+        ytDlpProcess.kill();
+    });
+});
+
 app.listen(PORT, '0.0.0.0', () => {
     log(`Echonix Pure-Proxy Server active on port ${PORT}`);
     log(`Local Network: http://0.0.0.0:${PORT}`);

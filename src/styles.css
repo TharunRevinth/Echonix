@@ -35,21 +35,33 @@ body::after {
 
 /* MAIN APP CONTAINER */
 .echonix-app {
-  display: flex;
+  display: flex !important; /* Force flex even if Tailwind isn't working */
   height: 100vh;
   width: 100vw;
   overflow: hidden; /* App container doesn't scroll, children do */
+  background-color: #1A2330;
 }
 
 /* SIDEBARS - FIXED WIDTH */
-aside {
+.sidebar-nav {
   flex-shrink: 0;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* RIGHT PANEL */
+.right-panel {
+  flex-shrink: 0;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
 }
 
 /* MAIN CONTENT AREA - SCROLLABLE */
 .main-viewport {
   flex: 1;
-  min-width: 500px; /* Prevent it from getting too squashed */
+  min-width: 0; /* Allow it to shrink below 500px if needed, but we'll use media queries */
   height: 100vh;
   overflow-y: auto;
   position: relative;
@@ -77,18 +89,26 @@ aside {
 }
 
 /* RESPONSIVE ADAPTIVITY */
-@media (max-width: 1200px) {
+@media (max-width: 1280px) {
   .right-panel {
-    display: none; /* Hide right panel on smaller screens */
+    display: none !important; /* Hide right panel on smaller screens */
+  }
+}
+
+@media (max-width: 1024px) {
+  .sidebar-nav {
+    position: fixed;
+    z-index: 50;
+    height: 100vh;
+  }
+  .main-viewport {
+    width: 100vw;
   }
 }
 
 @media (max-width: 800px) {
-  .sidebar-nav {
-    width: 80px; /* Shrink sidebar to icons only */
-  }
-  .sidebar-nav span, .sidebar-nav p, .sidebar-nav h1 {
-    display: none;
+  .sidebar-nav:not(.hidden) {
+    width: 100vw;
   }
 }
 
