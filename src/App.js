@@ -62,8 +62,12 @@ function App() {
   const [currentIndex, setCurrentIndex] = useState(-1);
   const [isDownloading, setIsDownloading] = useState(false);
   
-  const audioRef = useRef(null);
-  const lyricsRef = useRef(null);
+  const [radioStations, setRadioStations] = useState([]);
+  const [isRadioLoading, setIsRadioLoading] = useState(false);
+  const [radioQuery, setRadioQuery] = useState('');
+  const [isMixtapeView, setIsMixtapeView] = useState(false);
+
+  const audioRef = useRef(null);  const lyricsRef = useRef(null);
   const [likedSongs, setLikedSongs] = useState(() => JSON.parse(localStorage.getItem('likedSongs') || '[]'));
   const [localTapes, setLocalTapes] = useState(() => JSON.parse(localStorage.getItem('localTapes') || '[]'));
   const [recentlyPlayed, setRecentlyPlayed] = useState(() => JSON.parse(localStorage.getItem('recentlyPlayed') || '[]'));
@@ -219,6 +223,11 @@ function App() {
   }, [isPlaying, currentTrack]);
 
   const playTrack = async (track, newQueue = null) => {
+    if (track.isRadio) {
+      setCurrentTrack(track);
+      setIsPlaying(true);
+      return;
+    }
     console.log("Playing Track:", track.title, "Queue Size:", newQueue ? newQueue.length : queue.length);
     try {
       if (newQueue) {
@@ -271,6 +280,51 @@ function App() {
       console.error("Download Error:", err);
       alert("DOWNLOAD ERROR: SYSTEM FAILURE");
     }
+  };
+
+  const fetchRadioStations = async (q = '') => {
+    setIsRadioLoading(true);
+    try {
+      const baseUrl = "https://de1.api.radio-browser.info/json/stations/search";
+      const url = q 
+        ? `${baseUrl}?name=${encodeURIComponent(q)}&limit=20&order=votes&reverse=true`
+        : `${baseUrl}?tag=80s&limit=20&order=votes&reverse=true`;
+      
+      const res = await axios.get(url, {
+        headers: { "User-Agent": "EchonixStereo/1.0" }
+      });
+      setRadioStations(res.data);
+    } catch (err) {
+      console.error("Radio Error:", err);
+    } finally {
+      setIsRadioLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentView === 'radio' && radioStations.length === 0) {
+      fetchRadioStations();
+    }
+  }, [currentView]);
+
+  const playRadioStation = (station) => {
+    const host = getHost();
+    const proxyUrl = `http://${host}:5001/api/proxy-radio?url=${encodeURIComponent(station.url_resolved)}`;
+
+    const radioTrack = {
+      title: station.name,
+      uploaderName: `${station.country} \u2022 ${station.codec} ${station.bitrate}kbps`,
+      thumbnail: station.favicon || '',
+      streamUrl: proxyUrl,
+      id: station.stationuuid,
+      isRadio: true
+    };
+    
+    // Analog Tuning Effect
+    setExplanation("TUNING ANALOG FREQUENCY... STABILIZING SIGNAL...");
+    setCurrentTrack(radioTrack);
+    setIsPlaying(true);
+    setLyrics([{ time: 0, text: "LIVE BROADCAST - NO TAPE DATA" }]);
   };
 
   const handleNext = () => {
@@ -949,20 +1003,74 @@ function App() {
         )}
 
         {currentView === 'radio' && (
-          <section className="flex flex-col items-center justify-center py-20">
-            <div className="w-24 h-24 rounded-full bg-[#FF6B35]/10 border-2 border-[#FF6B35] flex items-center justify-center mb-8 animate-pulse">
-              <Radio className="w-12 h-12 text-[#FF6B35]" />
+          <section>
+            <div className="flex flex-col md:flex-row items-center justify-between mb-8 gap-6">
+              <div>
+                <h3 className="text-4xl font-black text-[#FFF8F0] mb-2 flex items-center gap-4">
+                  <Radio className="w-10 h-10 text-[#FF6B35]" /> RETRO FM
+                </h3>
+                <p className="text-[#8EA8C3] uppercase tracking-[0.3em]">Global Frequency Scanner</p>
+              </div>
+              
+              <div className="relative w-full md:w-96">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[#8EA8C3] w-5 h-5" />
+                <input 
+                  className="w-full bg-[#1A222D] border-2 border-[#2E3C4F] rounded-full py-3 pl-12 pr-4 focus:border-[#FF6B35] outline-none transition-all placeholder:text-[#2E3C4F]"
+                  placeholder="SCAN GENRE OR STATION..."
+                  value={radioQuery}
+                  onChange={(e) => setRadioQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && fetchRadioStations(radioQuery)}
+                />
+              </div>
             </div>
-            <h3 className="text-4xl font-black text-[#FFF8F0] mb-4">RETRO FM</h3>
-            <p className="text-[#8EA8C3] uppercase tracking-[0.3em] text-center max-w-md">
-              Analog frequency scanning... The radio module is currently being calibrated for your region.
-            </p>
+
+            {isRadioLoading ? (
+              <div className="py-20 flex flex-col items-center justify-center animate-pulse">
+                <div className="w-16 h-16 border-4 border-[#FF6B35] border-t-transparent rounded-full animate-spin mb-6" />
+                <p className="text-[#FFB347] font-mono tracking-widest uppercase">Scanning Frequencies...</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {radioStations.map((station) => (
+                  <div 
+                    key={station.stationuuid} 
+                    onClick={() => playRadioStation(station)}
+                    className="group flex items-center justify-between rounded-[26px] bg-[#1A222D] border border-[#2E3C4F] px-6 py-5 hover:bg-[#202A37] hover:border-[#FF6B35]/30 transition-all cursor-pointer"
+                  >
+                    <div className="flex items-center gap-5">
+                      <div className="w-12 h-12 rounded-[16px] bg-[#243140] flex items-center justify-center text-[#8EA8C3] group-hover:bg-[#FF6B35] group-hover:text-[#10151D] transition-all">
+                        <Radio className="w-5 h-5" />
+                      </div>
+                      <div className="overflow-hidden">
+                        <h4 className="font-semibold text-lg text-[#F7F1E8] group-hover:text-[#FFB347] transition-colors line-clamp-1">{station.name}</h4>
+                        <p className="text-sm text-[#8EA8C3] truncate">{station.country} \u2022 {station.tags}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="px-3 py-1 rounded-full bg-[#243140] text-[#8EA8C3] text-[10px] font-black uppercase tracking-widest group-hover:bg-[#FF6B35] group-hover:text-[#10151D]">
+                        {station.codec}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         )}
 
         {currentView === 'liked' && (
           <section>
-            <h3 className="text-3xl font-black text-[#FFF8F0] mb-6">Tonight's Mixtape</h3>
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-3xl font-black text-[#FFF8F0]">Tonight's Mixtape</h3>
+              {likedSongs.length > 0 && (
+                <button 
+                  onClick={() => setIsMixtapeView(true)}
+                  className="px-6 py-3 rounded-full bg-[#FF6B35] text-[#10151D] font-black uppercase tracking-widest text-xs hover:scale-105 transition-all shadow-[0_0_20px_rgba(255,107,53,0.3)] flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4" /> Generate Mixtape
+                </button>
+              )}
+            </div>
             <div className="space-y-4">
               {likedSongs.map((track) => (
                 <div key={track.url} onClick={() => playTrack(track, likedSongs)} className="group flex items-center justify-between rounded-[26px] bg-[#1A222D] border border-[#2E3C4F] px-6 py-5 hover:bg-[#202A37] hover:border-[#FF6B35]/30 transition-all cursor-pointer shadow-[0_15px_35px_rgba(0,0,0,0.25)]">
@@ -996,6 +1104,61 @@ function App() {
               ))}
               {likedSongs.length === 0 && <p className="text-center text-[#8EA8C3] py-20 border-2 border-dashed border-[#2E3C4F] rounded-[30px]">NO TAPES SAVED IN COLLECTION.</p>}
             </div>
+
+            {/* Mixtape Modal */}
+            {isMixtapeView && (
+              <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-[#10151D]/90 backdrop-blur-xl">
+                <div className="relative w-full max-w-2xl bg-[#F8EFE5] rounded-[40px] border-[12px] border-[#2A2119] shadow-[0_40px_100px_rgba(0,0,0,0.8)] p-10 text-[#2A2119] font-mono overflow-hidden">
+                  {/* Tape Lines */}
+                  <div className="absolute inset-0 opacity-[0.05] pointer-events-none" style={{ backgroundImage: 'repeating-linear-gradient(transparent, transparent 24px, #000 24px, #000 25px)' }} />
+                  
+                  <button 
+                    onClick={() => setIsMixtapeView(false)}
+                    className="absolute top-6 right-6 w-10 h-10 rounded-full bg-[#2A2119] text-[#F8EFE5] flex items-center justify-center hover:scale-110 transition-all z-10"
+                  >
+                    X
+                  </button>
+
+                  <div className="flex flex-col items-center mb-10">
+                    <div className="w-full h-16 bg-[#2A2119] rounded-xl flex items-center justify-between px-10 mb-8">
+                       <span className="text-[#F8EFE5] font-black tracking-[0.5em] text-xl">SIDE A</span>
+                       <div className="flex gap-4">
+                         <div className="w-3 h-3 rounded-full bg-[#FF6B35]" />
+                         <div className="w-3 h-3 rounded-full bg-[#FF6B35]" />
+                       </div>
+                    </div>
+                    <h4 className="text-3xl font-black border-b-4 border-[#2A2119] pb-2 mb-2 w-full text-center">TONIGHT'S MIXTAPE</h4>
+                    <p className="text-xs uppercase tracking-[0.4em] opacity-60">Echonix High Fidelity 90min</p>
+                  </div>
+
+                  <div className="space-y-4 mb-10 min-h-[300px]">
+                    {likedSongs.slice(0, 10).map((track, i) => (
+                      <div key={i} className="flex items-center gap-4 text-sm font-bold border-b border-[#2A2119]/20 pb-2">
+                        <span className="w-6">{i + 1}.</span>
+                        <span className="flex-1 truncate uppercase">{track.title}</span>
+                        <span className="opacity-60">{formatTime(track.duration || 222)}</span>
+                      </div>
+                    ))}
+                    {likedSongs.length > 10 && <p className="text-center text-xs opacity-40 italic mt-4">+ {likedSongs.length - 10} MORE TRACKS</p>}
+                  </div>
+
+                  <div className="flex justify-between items-end border-t-4 border-[#2A2119] pt-8">
+                    <div>
+                       <p className="text-[10px] font-black uppercase tracking-tighter mb-1">Manufacturer</p>
+                       <p className="text-xl font-black tracking-widest">ECHONIX CORP.</p>
+                    </div>
+                    <div className="text-right">
+                       <p className="text-[10px] font-black uppercase tracking-tighter mb-1">Date Recorded</p>
+                       <p className="text-xl font-black">{new Date().toLocaleDateString()}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-8 text-center text-[8px] opacity-40 tracking-[0.5em] uppercase">
+                    Warning: Do not expose to extreme heat or magnetic fields.
+                  </div>
+                </div>
+              </div>
+            )}
           </section>
         )}
       </main>
@@ -1082,7 +1245,6 @@ function App() {
         autoPlay 
         preload="auto"
         playsInline
-        crossOrigin="anonymous"
         onPlay={() => setIsPlaying(true)} 
         onPause={() => setIsPlaying(false)} 
         onEnded={handleNext}

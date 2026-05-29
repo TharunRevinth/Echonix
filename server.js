@@ -102,6 +102,36 @@ app.get('/api/proxy-image', async (req, res) => {
     } catch (e) { res.status(500).end(); }
 });
 
+// --- RADIO PROXY ENDPOINT ---
+app.get('/api/proxy-radio', async (req, res) => {
+    const streamUrl = req.query.url;
+    if (!streamUrl) return res.status(400).send("Missing URL");
+
+    log(`[Radio Proxy] Proxying stream: ${streamUrl}`);
+
+    try {
+        const response = await axios({
+            method: 'get',
+            url: streamUrl,
+            responseType: 'stream',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+            }
+        });
+
+        res.setHeader('Content-Type', response.headers['content-type'] || 'audio/mpeg');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        response.data.pipe(res);
+
+        req.on('close', () => {
+            if (response.data.destroy) response.data.destroy();
+        });
+    } catch (err) {
+        log(`[Radio Proxy Error] ${err.message}`);
+        res.status(500).send("Radio proxy failed");
+    }
+});
+
 const { spawn } = require('child_process');
 const path = require('path');
 
