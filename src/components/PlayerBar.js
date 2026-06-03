@@ -1,99 +1,276 @@
 import React from 'react';
-import { Play, Pause, SkipForward, SkipBack, Volume2, Heart, Repeat, Shuffle, Download, CassetteTape } from 'lucide-react';
+import { Play, Pause, SkipForward, SkipBack, Volume2, Heart, Repeat, Shuffle, Download, CassetteTape, ChevronDown, Mic2, Cpu, Info } from 'lucide-react';
 
 const PlayerBar = ({ 
   currentTrack, isPlaying, setIsPlaying, currentTime, duration, handleSeek, 
   handleNext, handlePrev, volume, setVolume, formatTime, getImageUrl,
-  toggleLike, likedSongs, handleDownload, toggleLocalTape, localTapes
+  toggleLike, likedSongs, handleDownload, toggleLocalTape, localTapes,
+  isPlayerExpanded, setIsPlayerExpanded, lyrics, explanation, explainLyrics, lyricsRef,
+  isShuffle, setIsShuffle, repeatMode, setRepeatMode
 }) => {
   if (!currentTrack) return null;
 
   const isLiked = likedSongs.find(s => s.url === currentTrack.url);
   const isTaped = localTapes.find(s => s.url === currentTrack.url);
 
+  const toggleRepeat = () => {
+    if (repeatMode === 'off') setRepeatMode('all');
+    else if (repeatMode === 'all') setRepeatMode('one');
+    else setRepeatMode('off');
+  };
+
   return (
-    <div className="fixed bottom-0 left-0 right-0 h-24 bg-bg-dark/90 backdrop-blur-2xl border-t border-glass-border px-6 flex items-center justify-between z-50">
-      {/* Track Info */}
-      <div className="flex items-center gap-4 w-1/4 min-w-[200px]">
-        <div className="w-14 h-14 rounded-xl overflow-hidden border border-glass-border">
-          <img src={getImageUrl(currentTrack)} alt="" className="w-full h-full object-cover" />
-        </div>
-        <div className="flex-1 overflow-hidden">
-          <h4 className="text-sm font-bold text-white truncate">{currentTrack.title}</h4>
-          <p className="text-xs text-text-secondary truncate">{currentTrack.uploaderName}</p>
-        </div>
-        <Heart 
-          onClick={() => toggleLike(currentTrack)}
-          className={`w-5 h-5 cursor-pointer transition-all ${isLiked ? 'text-accent-purple fill-accent-purple' : 'text-text-secondary hover:text-white'}`} 
-        />
-      </div>
-
-      {/* Controls */}
-      <div className="flex flex-col items-center gap-2 flex-1 max-w-2xl px-10">
-        <div className="flex items-center gap-6">
-          <button className="text-text-secondary hover:text-white transition-colors"><Shuffle className="w-4 h-4" /></button>
-          <button onClick={handlePrev} className="text-text-secondary hover:text-white transition-colors"><SkipBack className="w-5 h-5 fill-current" /></button>
-          <button 
-            onClick={() => setIsPlaying(!isPlaying)}
-            className="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform"
-          >
-            {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
-          </button>
-          <button onClick={handleNext} className="text-text-secondary hover:text-white transition-colors"><SkipForward className="w-5 h-5 fill-current" /></button>
-          <button className="text-text-secondary hover:text-white transition-colors"><Repeat className="w-4 h-4" /></button>
-        </div>
+    <>
+      {/* Expanded Spotify-Style Player */}
+      <div className={`fixed inset-0 z-[100] bg-bg-dark transition-all duration-500 ease-[cubic-bezier(0.3,0,0.2,1)] ${isPlayerExpanded ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'}`}>
+        <div className="absolute inset-0 bg-gradient-to-b from-accent-purple/30 via-bg-dark/95 to-bg-dark pointer-events-none" />
         
-        <div className="w-full flex items-center gap-3">
-          <span className="text-[10px] font-medium text-text-secondary w-10 text-right">{formatTime(currentTime)}</span>
-          <div className="flex-1 h-1 relative group cursor-pointer">
-            <input 
-              type="range"
-              min="0"
-              max={duration || 0}
-              value={currentTime}
-              onChange={handleSeek}
-              className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
-            />
-            <div className="absolute inset-0 bg-glass-border rounded-full" />
-            <div 
-              className="absolute inset-y-0 left-0 bg-accent-purple rounded-full shadow-glow-purple" 
-              style={{ width: `${(currentTime / (duration || 1)) * 100}%` }} 
-            />
+        <div className="relative h-full flex flex-col p-6 md:p-12 lg:px-20 lg:py-16 max-w-[1600px] mx-auto w-full overflow-hidden">
+          {/* Top Bar */}
+          <div className="flex items-center justify-between w-full mb-8 lg:mb-12">
+            <button 
+              onClick={() => setIsPlayerExpanded(false)}
+              className="p-3 rounded-full hover:bg-white/10 transition-colors"
+            >
+              <ChevronDown className="w-8 h-8 text-white" />
+            </button>
+            <div className="text-center">
+              <p className="text-[10px] font-black uppercase tracking-[0.4em] text-text-secondary/60">Now Playing</p>
+              <p className="text-sm font-bold text-white mt-1 line-clamp-1 max-w-[200px] md:max-w-md">{currentTrack.title}</p>
+            </div>
+            <button className="p-3 rounded-full hover:bg-white/10 transition-colors">
+              <Info className="w-6 h-6 text-white/40" />
+            </button>
           </div>
-          <span className="text-[10px] font-medium text-text-secondary w-10">{formatTime(duration)}</span>
+
+          <div className="flex flex-col lg:flex-row gap-10 lg:gap-24 flex-1 items-center lg:items-center overflow-hidden">
+            {/* Left: Enhanced Cover Art */}
+            <div className="w-full max-w-[340px] md:max-w-[420px] lg:w-[460px] flex-shrink-0">
+              <div className="aspect-square rounded-[48px] overflow-hidden shadow-[0_50px_100px_rgba(0,0,0,0.9)] border border-white/10 group relative bg-black/40">
+                <img src={getImageUrl(currentTrack)} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-1000" />
+                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+
+              <div className="mt-10 space-y-6">
+                 <div className="flex items-center justify-between gap-6">
+                    <div className="flex-1 overflow-hidden">
+                      <h2 className="text-3xl md:text-4xl font-black text-white tracking-tighter leading-tight truncate">{currentTrack.title}</h2>
+                      <p className="text-lg md:text-xl text-accent-purple font-bold mt-2 opacity-90 truncate">{currentTrack.uploaderName}</p>
+                    </div>
+                    <Heart 
+                      onClick={() => toggleLike(currentTrack)}
+                      className={`w-10 h-10 flex-shrink-0 cursor-pointer transition-all hover:scale-110 ${isLiked ? 'text-accent-purple fill-accent-purple' : 'text-white/20 hover:text-white'}`} 
+                    />
+                 </div>
+
+                 {/* AI Insights Card with Glassmorphism */}
+                 <div className="p-6 rounded-[32px] bg-white/[0.03] border border-white/10 backdrop-blur-xl shadow-2xl">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <Cpu className="w-4 h-4 text-accent-purple" />
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-accent-purple">AI Intelligence</span>
+                      </div>
+                      {!explanation && (
+                        <button 
+                          onClick={explainLyrics}
+                          className="px-4 py-1.5 rounded-full bg-accent-purple text-white text-[10px] font-black hover:scale-105 transition-all shadow-glow-purple"
+                        >
+                          ANALYZE
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-sm text-text-secondary/80 leading-relaxed italic font-medium">
+                      {explanation || "Decrypt the sonic signature of this frequency with our neural analysis engine."}
+                    </p>
+                 </div>
+              </div>
+            </div>
+
+            {/* Right: Immersive Lyrics */}
+            <div className="flex-1 w-full h-full flex flex-col min-h-0">
+              <div 
+                ref={lyricsRef}
+                className="flex-1 overflow-y-auto pr-4 space-y-10 custom-scrollbar scroll-smooth mask-fade-edges py-10"
+              >
+                {lyrics && lyrics.length > 0 ? lyrics.map((line, i) => {
+                  const isActive = line.time !== -1 && line.time <= currentTime && (lyrics[i+1]?.time > currentTime || !lyrics[i+1]);
+                  return (
+                    <p 
+                      key={i} 
+                      className={`text-3xl md:text-4xl lg:text-6xl font-black transition-all duration-700 origin-left leading-tight ${isActive ? 'text-white translate-x-4 scale-100 opacity-100 blur-0' : 'text-white/10 scale-95 opacity-20 blur-[2px] hover:opacity-40 cursor-pointer hover:blur-0'}`}
+                      onClick={() => line.time !== -1 && handleSeek({ target: { value: line.time } })}
+                    >
+                      {line.text}
+                    </p>
+                  );
+                }) : (
+                  <div className="h-full flex flex-col items-center justify-center text-center opacity-20">
+                    <Mic2 className="w-16 h-16 mb-6" />
+                    <p className="text-2xl font-bold uppercase tracking-widest italic">Awaiting Lyrics Data</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom Control Suite */}
+          <div className="mt-auto w-full max-w-4xl mx-auto pt-10 pb-4">
+             <div className="w-full mb-10">
+                <div className="flex-1 h-1.5 relative group cursor-pointer">
+                  <input 
+                    type="range"
+                    min="0"
+                    max={duration || 0}
+                    value={currentTime}
+                    onChange={handleSeek}
+                    className="absolute inset-0 w-full h-full opacity-0 z-20 cursor-pointer"
+                  />
+                  <div className="absolute inset-0 bg-white/5 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-white/20" 
+                      style={{ width: `${(currentTime / (duration || 1)) * 100}%` }} 
+                    />
+                  </div>
+                  <div 
+                    className="absolute inset-y-0 left-0 bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,0.5)] transition-all duration-150" 
+                    style={{ width: `${(currentTime / (duration || 1)) * 100}%` }} 
+                  />
+                </div>
+                <div className="flex justify-between mt-4 px-1 opacity-60">
+                  <span className="text-xs font-mono font-bold text-white">{formatTime(currentTime)}</span>
+                  <span className="text-xs font-mono font-bold text-white">{formatTime(duration)}</span>
+                </div>
+             </div>
+
+             <div className="flex items-center justify-between gap-12">
+                <button 
+                  onClick={() => setIsShuffle(!isShuffle)}
+                  className={`p-4 rounded-full transition-all ${isShuffle ? 'bg-accent-purple/10 text-accent-purple shadow-glow-purple scale-110' : 'text-text-secondary hover:text-white'}`}
+                >
+                  <Shuffle className="w-6 h-6" />
+                </button>
+                <div className="flex items-center gap-10 md:gap-14">
+                  <button onClick={handlePrev} className="text-white hover:scale-110 transition-all active:scale-90"><SkipBack className="w-10 h-10 fill-current" /></button>
+                  <button 
+                    onClick={() => setIsPlaying(!isPlaying)}
+                    className="w-24 h-24 rounded-full bg-white text-black flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-[0_0_40px_rgba(255,255,255,0.3)]"
+                  >
+                    {isPlaying ? <Pause className="w-12 h-12 fill-current" /> : <Play className="w-12 h-12 fill-current ml-2" />}
+                  </button>
+                  <button onClick={handleNext} className="text-white hover:scale-110 transition-all active:scale-90"><SkipForward className="w-10 h-10 fill-current" /></button>
+                </div>
+                <button 
+                  onClick={toggleRepeat}
+                  className={`relative p-4 rounded-full transition-all ${repeatMode !== 'off' ? 'bg-accent-purple/10 text-accent-purple shadow-glow-purple scale-110' : 'text-text-secondary hover:text-white'}`}
+                >
+                  <Repeat className="w-6 h-6" />
+                  {repeatMode === 'one' && <span className="absolute top-2 right-2 bg-accent-purple text-white text-[8px] font-black w-4 h-4 rounded-full flex items-center justify-center border-2 border-bg-dark">1</span>}
+                </button>
+             </div>
+          </div>
         </div>
       </div>
 
-      {/* Volume & Actions */}
-      <div className="flex items-center gap-6 w-1/4 justify-end">
-        <div className="hidden md:flex items-center gap-4">
-          <Download 
-            onClick={() => handleDownload(currentTrack)}
-            className="w-5 h-5 text-text-secondary hover:text-white cursor-pointer transition-colors" 
-          />
-          <CassetteTape 
-            onClick={() => toggleLocalTape(currentTrack)}
-            className={`w-5 h-5 cursor-pointer transition-all ${isTaped ? 'text-accent-teal' : 'text-text-secondary hover:text-white'}`} 
+      {/* Mini Player Bar */}
+      <div className="fixed bottom-0 left-0 right-0 h-24 bg-bg-dark/95 backdrop-blur-3xl border-t border-glass-border px-6 flex items-center justify-between z-[60] shadow-[0_-20px_50px_rgba(0,0,0,0.5)]">
+        {/* Track Info (Click to expand) */}
+        <div 
+          onClick={() => setIsPlayerExpanded(true)}
+          className="flex items-center gap-4 w-1/4 min-w-[200px] cursor-pointer group"
+        >
+          <div className="w-14 h-14 rounded-xl overflow-hidden border border-glass-border shadow-2xl group-hover:scale-105 transition-transform duration-300">
+            <img src={getImageUrl(currentTrack)} alt="" className="w-full h-full object-cover" />
+          </div>
+          <div className="flex-1 overflow-hidden">
+            <h4 className="text-sm font-bold text-white truncate group-hover:text-accent-purple transition-colors">{currentTrack.title}</h4>
+            <p className="text-xs text-text-secondary truncate">{currentTrack.uploaderName}</p>
+          </div>
+          <Heart 
+            onClick={(e) => { e.stopPropagation(); toggleLike(currentTrack); }}
+            className={`w-5 h-5 cursor-pointer transition-all ${isLiked ? 'text-accent-purple fill-accent-purple' : 'text-text-secondary hover:text-white'}`} 
           />
         </div>
-        <div className="flex items-center gap-3 w-32 group">
-          <Volume2 className="w-5 h-5 text-text-secondary group-hover:text-white transition-colors" />
-          <div className="flex-1 h-1 relative cursor-pointer">
-            <input 
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={volume}
-              onChange={(e) => setVolume(parseFloat(e.target.value))}
-              className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
+
+        {/* Controls */}
+        <div className="flex flex-col items-center gap-2 flex-1 max-w-2xl px-10">
+          <div className="flex items-center gap-6">
+            <button 
+              onClick={() => setIsShuffle(!isShuffle)}
+              className={`transition-all ${isShuffle ? 'text-accent-purple scale-110' : 'text-text-secondary hover:text-white'}`}
+            >
+              <Shuffle className="w-4 h-4" />
+            </button>
+            <button onClick={handlePrev} className="text-text-secondary hover:text-white transition-colors"><SkipBack className="w-5 h-5 fill-current" /></button>
+            <button 
+              onClick={() => setIsPlaying(!isPlaying)}
+              className="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-glow-white"
+            >
+              {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
+            </button>
+            <button onClick={handleNext} className="text-text-secondary hover:text-white transition-colors"><SkipForward className="w-5 h-5 fill-current" /></button>
+            <button 
+              onClick={toggleRepeat}
+              className={`relative transition-all ${repeatMode !== 'off' ? 'text-accent-purple scale-110' : 'text-text-secondary hover:text-white'}`}
+            >
+              <Repeat className="w-4 h-4" />
+              {repeatMode === 'one' && <span className="absolute -top-1.5 -right-1.5 bg-accent-purple text-white text-[6px] font-black w-3 h-3 rounded-full flex items-center justify-center">1</span>}
+            </button>
+          </div>
+          
+          <div className="w-full flex items-center gap-3">
+            <span className="text-[10px] font-bold text-text-secondary w-10 text-right opacity-60">{formatTime(currentTime)}</span>
+            <div className="flex-1 h-1 relative group cursor-pointer">
+              <input 
+                type="range"
+                min="0"
+                max={duration || 0}
+                value={currentTime}
+                onChange={handleSeek}
+                className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
+              />
+              <div className="absolute inset-0 bg-white/5 rounded-full" />
+              <div 
+                className={`absolute inset-y-0 left-0 rounded-full transition-colors ${repeatMode === 'one' ? 'bg-accent-teal' : 'bg-white group-hover:bg-accent-purple'}`} 
+                style={{ width: `${(currentTime / (duration || 1)) * 100}%` }} 
+              />
+            </div>
+            <span className="text-[10px] font-bold text-text-secondary w-10 opacity-60">{formatTime(duration)}</span>
+          </div>
+        </div>
+
+        {/* Volume & Actions */}
+        <div className="flex items-center gap-6 w-1/4 justify-end">
+          <div className="hidden lg:flex items-center gap-4">
+            <button 
+              onClick={() => setIsPlayerExpanded(true)}
+              className={`p-2 rounded-lg hover:bg-white/10 transition-colors ${lyrics?.length > 0 ? 'text-accent-teal' : 'text-text-secondary'}`}
+            >
+              <Mic2 className="w-5 h-5" />
+            </button>
+            <Download 
+              onClick={() => handleDownload(currentTrack)}
+              className="w-5 h-5 text-text-secondary hover:text-white cursor-pointer transition-colors" 
             />
-            <div className="absolute inset-0 bg-glass-border rounded-full" />
-            <div className="absolute inset-y-0 left-0 bg-white rounded-full" style={{ width: `${volume * 100}%` }} />
+          </div>
+          <div className="flex items-center gap-3 w-32 group">
+            <Volume2 className="w-5 h-5 text-text-secondary group-hover:text-white transition-colors" />
+            <div className="flex-1 h-1 relative cursor-pointer">
+              <input 
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={volume}
+                onChange={(e) => setVolume(parseFloat(e.target.value))}
+                className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
+              />
+              <div className="absolute inset-0 bg-white/10 rounded-full" />
+              <div className="absolute inset-y-0 left-0 bg-white rounded-full group-hover:bg-accent-purple transition-colors" style={{ width: `${volume * 100}%` }} />
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 };
 

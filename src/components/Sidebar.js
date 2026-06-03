@@ -45,11 +45,6 @@ const Sidebar = ({ currentView, setCurrentView, isMobileOpen, setIsMobileOpen })
           );
         })}
       </nav>
-
-      <div className="absolute bottom-10 left-6 right-6 p-4 rounded-2xl bg-glass-bg border border-glass-border">
-        <p className="text-xs font-semibold text-accent-teal uppercase tracking-widest mb-2">Pro System</p>
-        <p className="text-sm text-text-secondary leading-tight">Echonix High Fidelity Audio Engine v2.0</p>
-      </div>
     </aside>
   );
 };

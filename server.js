@@ -14,6 +14,7 @@ const log = (msg) => {
 };
 
 app.use(cors());
+app.use(express.json()); // Enable JSON body parsing for POST requests
 
 // A robust list of public Piped instances to use as "shields"
 const PIPED_INSTANCES = [
@@ -333,21 +334,102 @@ app.get('/api/playlist', (req, res) => {
 // --- TRENDING PLAYLISTS ENDPOINT ---
 app.get('/api/trending-playlists', async (req, res) => {
     try {
-        const query = req.query.q || 'top trending music playlists 2026 global';
-        const results = await ytSearch(query);
-        const playlists = results.playlists.slice(0, 15).map(p => ({
-            id: p.listId,
-            title: p.title,
-            thumbnail: `/api/proxy-image?url=${encodeURIComponent(p.thumbnail || p.image)}`,
-            uploaderName: p.author.name, // Matches getImageUrl expected property
-            videoCount: p.videoCount,
-            url: p.url,
-            engine: `http://localhost:${PORT}` // Explicitly set for getImageUrl
+        const customQuery = req.query.q;
+        
+        if (customQuery) {
+            const results = await ytSearch(customQuery + " Official YouTube Music Playlist");
+            return res.json(results.playlists.slice(0, 15).map(p => ({
+                id: p.listId,
+                title: p.title,
+                thumbnail: `/api/proxy-image?url=${encodeURIComponent(p.thumbnail || p.image)}`,
+                uploaderName: p.author.name,
+                videoCount: p.videoCount,
+                url: p.url,
+                engine: `http://localhost:${PORT}`
+            })));
+        }
+
+        // Regionally categorized discovery - targeting YouTube Music Official
+        const categories = {
+            'Bollywood': 'Official Bollywood Music Playlist YouTube Music',
+            'Kollywood': 'Official Tamil Hits Playlist YouTube Music',
+            'Tollywood': 'Official Telugu Hits Playlist YouTube Music',
+            'Mollywood': 'Official Malayalam Hits Playlist YouTube Music',
+            'Chandanavana': 'Official Kannada Hits Playlist YouTube Music',
+            'International': 'Official Global Top Hits YouTube Music'
+        };
+
+        const result = {};
+
+        await Promise.all(Object.entries(categories).map(async ([name, query]) => {
+            try {
+                const r = await ytSearch(query);
+                result[name] = r.playlists.slice(0, 6).map(p => ({
+                    id: p.listId,
+                    title: p.title,
+                    thumbnail: `/api/proxy-image?url=${encodeURIComponent(p.thumbnail || p.image)}`,
+                    uploaderName: p.author.name,
+                    videoCount: p.videoCount,
+                    url: p.url,
+                    engine: `http://localhost:${PORT}`
+                }));
+            } catch (e) { result[name] = []; }
         }));
-        res.json(playlists);
+
+        res.json(result);
     } catch (err) {
         log(`[Trending Playlists Error] ${err.message}`);
         res.status(500).json({ error: "Failed to fetch trending playlists" });
+    }
+});
+
+// --- TRENDING TRACKS ENDPOINT ---
+app.get('/api/trending-tracks', async (req, res) => {
+    try {
+        const query = 'top hits 2026 global official audio';
+        const results = await ytSearch(query);
+        const tracks = results.videos.slice(0, 12).map(v => ({
+            title: v.title,
+            uploaderName: v.author.name,
+            thumbnail: `/api/proxy-image?url=${encodeURIComponent(v.thumbnail)}`,
+            url: v.url,
+            id: v.videoId,
+            duration: v.seconds,
+            engine: `http://localhost:${PORT}`
+        }));
+        res.json(tracks);
+    } catch (err) {
+        res.status(500).json({ error: "Failed to fetch trending tracks" });
+    }
+});
+
+// --- SECURE AI PROXY ENDPOINT ---
+app.post('/api/ai-chat', async (req, res) => {
+    const { model, messages, max_tokens } = req.body;
+    
+    // Fallback if not configured in backend environment
+    const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || process.env.REACT_APP_OPENROUTER_KEY;
+    
+    if (!OPENROUTER_KEY) {
+        return res.status(500).json({ error: "OpenRouter API Key not configured on server" });
+    }
+
+    try {
+        const response = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
+            model,
+            messages,
+            max_tokens
+        }, {
+            headers: { 
+                "Authorization": `Bearer ${OPENROUTER_KEY}`, 
+                "X-Title": "Echonix",
+                "Content-Type": "application/json"
+            }
+        });
+        res.json(response.data);
+    } catch (err) {
+        log(`[AI Proxy Error] ${err.response?.status} - ${err.message}`);
+        res.status(err.response?.status || 500).json(err.response?.data || { error: "AI Request Failed" });
     }
 });
 

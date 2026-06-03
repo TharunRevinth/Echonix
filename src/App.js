@@ -13,8 +13,6 @@ import {
   getHost, ENGINES, formatTime, cleanString, parseLRC 
 } from './utils';
 
-const OPENROUTER_KEY = process.env.REACT_APP_OPENROUTER_KEY;
-
 function App() {
   // --- STATE ---
   const [activeEngine, setActiveEngine] = useState(`http://${getHost()}:5001/api`);
@@ -39,6 +37,9 @@ function App() {
   const [playlistData, setPlaylistData] = useState(null);
   const [isPlaylistLoading, setIsPlaylistLoading] = useState(false);
   const [searchType, setSearchType] = useState('tracks'); // 'tracks' or 'playlists'
+  const [isPlayerExpanded, setIsPlayerExpanded] = useState(false);
+  const [isShuffle, setIsShuffle] = useState(false);
+  const [repeatMode, setRepeatMode] = useState('off'); // 'off', 'all', 'one'
 
   const audioRef = useRef(null);
   const lyricsRef = useRef(null);
@@ -48,6 +49,7 @@ function App() {
   const [localTapes, setLocalTapes] = useState(() => JSON.parse(localStorage.getItem('localTapes') || '[]'));
   const [recentlyPlayed, setRecentlyPlayed] = useState(() => JSON.parse(localStorage.getItem('recentlyPlayed') || '[]'));
   const [trendingPlaylists, setTrendingPlaylists] = useState([]);
+  const [trendingTracks, setTrendingTracks] = useState([]);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
@@ -55,8 +57,10 @@ function App() {
   useEffect(() => {
     const loadTrending = async () => {
       try {
-        const { data } = await fetchWithFallback('/trending-playlists');
-        setTrendingPlaylists(data);
+        const pRes = await fetchWithFallback('/trending-playlists');
+        setTrendingPlaylists(pRes.data);
+        const tRes = await fetchWithFallback('/trending-tracks');
+        setTrendingTracks(tRes.data);
       } catch (e) {}
     };
     loadTrending();
@@ -150,16 +154,11 @@ function App() {
 
     for (const model of models) {
       try {
-        const res = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
+        const res = await axios.post(`http://${getHost()}:5001/api/ai-chat`, {
           model: model,
           messages: [{ role: "user", content: prompt }],
           max_tokens: 1000 // Global limit to prevent "insufficient credits" 402 errors
         }, {
-          headers: { 
-            "Authorization": `Bearer ${OPENROUTER_KEY}`, 
-            "X-Title": "Echonix",
-            "Content-Type": "application/json"
-          },
           signal: signal
         });
         
@@ -351,13 +350,47 @@ function App() {
   };
 
   const handleNext = () => {
-    if (queue.length === 0 || currentIndex === -1) return;
-    playTrack(queue[(currentIndex + 1) % queue.length]);
+    if (queue.length === 0) return;
+
+    if (repeatMode === 'one') {
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play();
+      }
+      return;
+    }
+
+    if (isShuffle) {
+      const nextIndex = Math.floor(Math.random() * queue.length);
+      playTrack(queue[nextIndex]);
+      return;
+    }
+
+    const nextIndex = (currentIndex + 1) % queue.length;
+    // Stop at end if repeat is off and we've cycled back to start
+    if (nextIndex === 0 && repeatMode === 'off' && currentIndex !== -1) {
+        setIsPlaying(false);
+        return;
+    }
+    playTrack(queue[nextIndex]);
   };
 
   const handlePrev = () => {
-    if (queue.length === 0 || currentIndex === -1) return;
-    playTrack(queue[(currentIndex - 1 + queue.length) % queue.length]);
+    if (queue.length === 0) return;
+    
+    if (audioRef.current && audioRef.current.currentTime > 3) {
+        audioRef.current.currentTime = 0;
+        return;
+    }
+
+    if (isShuffle) {
+      const nextIndex = Math.floor(Math.random() * queue.length);
+      playTrack(queue[nextIndex]);
+      return;
+    }
+
+    const prevIndex = (currentIndex - 1 + queue.length) % queue.length;
+    playTrack(queue[prevIndex]);
   };
 
   const fetchRadioStations = async (q = '') => {
@@ -455,6 +488,7 @@ function App() {
             playlistData={playlistData}
             isPlaylistLoading={isPlaylistLoading}
             trendingPlaylists={trendingPlaylists}
+            trendingTracks={trendingTracks}
             fetchPlaylist={fetchPlaylist}
             searchType={searchType}
             setSearchType={setSearchType}
@@ -484,6 +518,16 @@ function App() {
         handleDownload={handleDownload}
         toggleLocalTape={toggleLocalTape}
         localTapes={localTapes}
+        isPlayerExpanded={isPlayerExpanded}
+        setIsPlayerExpanded={setIsPlayerExpanded}
+        isShuffle={isShuffle}
+        setIsShuffle={setIsShuffle}
+        repeatMode={repeatMode}
+        setRepeatMode={setRepeatMode}
+        lyrics={lyrics}
+        explanation={explanation}
+        explainLyrics={explainLyrics}
+        lyricsRef={lyricsRef}
       />
 
       <audio 

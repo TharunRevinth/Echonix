@@ -1,7 +1,7 @@
 import React from 'react';
 import { Play, MoreVertical, Heart, Flame, Trophy, Star } from 'lucide-react';
 
-const HomeView = ({ recentlyPlayed, playTrack, getImageUrl, formatTime, toggleLike, likedSongs, handleSearch, setQuery, trendingPlaylists, fetchPlaylist }) => {
+const HomeView = ({ recentlyPlayed, trendingTracks, playTrack, getImageUrl, formatTime, toggleLike, likedSongs, handleSearch, setQuery, trendingPlaylists, fetchPlaylist }) => {
   const featured = [
     { 
       title: 'BEST OF 2024', 
@@ -73,8 +73,43 @@ const HomeView = ({ recentlyPlayed, playTrack, getImageUrl, formatTime, toggleLi
         </div>
       </section>
 
-      {/* YouTube Music Trends */}
-      {trendingPlaylists && trendingPlaylists.length > 0 && (
+      {/* YouTube Music Trends by Region */}
+      {trendingPlaylists && !Array.isArray(trendingPlaylists) && Object.entries(trendingPlaylists).map(([region, playlists]) => (
+        <section key={region}>
+          <div className="flex items-center justify-between mb-8">
+            <h3 className="text-2xl font-black text-white tracking-tight">{region} Trends</h3>
+            <button 
+              onClick={() => onFeaturedClick(`top ${region.toLowerCase()} music 2026`)}
+              className="text-xs font-bold uppercase tracking-widest text-accent-purple hover:text-white transition-colors"
+            >
+              See all
+            </button>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
+            {playlists.map((playlist) => (
+              <div 
+                key={playlist.id} 
+                onClick={() => fetchPlaylist(playlist.id)}
+                className="group cursor-pointer"
+              >
+                <div className="relative aspect-square rounded-[28px] overflow-hidden mb-4 border border-white/5 shadow-2xl">
+                  <img src={getImageUrl(playlist)} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-300 backdrop-blur-[2px]">
+                    <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center shadow-2xl transform scale-75 group-hover:scale-100 transition-transform">
+                      <Play className="text-black fill-black w-5 h-5 ml-1" />
+                    </div>
+                  </div>
+                </div>
+                <h4 className="font-bold text-white text-sm line-clamp-1 group-hover:text-accent-purple transition-colors">{playlist.title}</h4>
+                <p className="text-[10px] text-text-secondary font-bold uppercase tracking-widest mt-1 opacity-60">{playlist.videoCount} Tracks</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+
+      {/* Legacy support for flat array if needed */}
+      {trendingPlaylists && Array.isArray(trendingPlaylists) && trendingPlaylists.length > 0 && (
         <section>
           <div className="flex items-center justify-between mb-8">
             <h3 className="text-2xl font-black text-white tracking-tight">YouTube Music Trends</h3>
@@ -107,15 +142,20 @@ const HomeView = ({ recentlyPlayed, playTrack, getImageUrl, formatTime, toggleLi
       <section>
         <div className="flex items-center justify-between mb-8">
           <h3 className="text-2xl font-black text-white tracking-tight">Trending Music</h3>
-          <button className="text-xs font-bold uppercase tracking-widest text-accent-purple hover:text-white transition-colors">See all</button>
+          <button 
+            onClick={() => onFeaturedClick('trending official audio')}
+            className="text-xs font-bold uppercase tracking-widest text-accent-purple hover:text-white transition-colors"
+          >
+            See all
+          </button>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-2">
-          {recentlyPlayed.length > 0 ? recentlyPlayed.slice(0, 8).map((track, i) => {
+          {trendingTracks && trendingTracks.length > 0 ? trendingTracks.slice(0, 12).map((track, i) => {
             const isLiked = likedSongs.find(s => s.url === track.url);
             return (
               <div 
                 key={i} 
-                onClick={() => playTrack(track, recentlyPlayed)}
+                onClick={() => playTrack(track, trendingTracks)}
                 className="group flex items-center justify-between p-3 rounded-2xl hover:bg-white/[0.03] border border-transparent hover:border-white/5 transition-all cursor-pointer"
               >
                 <div className="flex items-center gap-4">
@@ -146,7 +186,7 @@ const HomeView = ({ recentlyPlayed, playTrack, getImageUrl, formatTime, toggleLi
           }) : (
             <div className="col-span-2 py-20 text-center border-2 border-dashed border-white/5 rounded-[40px] bg-white/[0.01]">
               <p className="text-text-secondary font-bold uppercase tracking-widest">Awaiting Transmission...</p>
-              <p className="text-[10px] text-text-secondary/40 mt-2 uppercase tracking-tighter">Your recent tapes will appear here</p>
+              <p className="text-[10px] text-text-secondary/40 mt-2 uppercase tracking-tighter">Connecting to Global Charts</p>
             </div>
           )}
         </div>

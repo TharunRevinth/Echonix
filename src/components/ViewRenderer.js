@@ -8,7 +8,7 @@ const ViewRenderer = ({
   radioStations, isRadioLoading, radioQuery, setRadioQuery, fetchRadioStations, playRadioStation,
   setIsMixtapeView, isMixtapeView, queue, currentIndex, setQueue, setCurrentIndex,
   explanation, explainLyrics, lyrics, currentTime, lyricsRef,
-  playlistData, isPlaylistLoading, trendingPlaylists, fetchPlaylist,
+  playlistData, isPlaylistLoading, trendingPlaylists, trendingTracks, fetchPlaylist,
   searchType, setSearchType
 }) => {
   switch (currentView) {
@@ -18,7 +18,6 @@ const ViewRenderer = ({
           {isPlaylistLoading ? (
             <div className="flex flex-col items-center py-20">
               <div className="w-12 h-12 border-2 border-accent-purple border-t-transparent rounded-full animate-spin mb-4" />
-              <p className="text-accent-purple animate-pulse font-medium">Importing Playlist...</p>
             </div>
           ) : playlistData && (
             <>
@@ -31,7 +30,7 @@ const ViewRenderer = ({
                    )}
                 </div>
                 <div className="flex-1">
-                  <p className="text-xs font-bold text-accent-purple uppercase tracking-[0.2em] mb-2">YouTube Playlist</p>
+                  <p className="text-xs font-bold text-accent-purple uppercase tracking-[0.2em] mb-2">YouTube Music</p>
                   <h3 className="text-5xl font-black text-white mb-4 tracking-tighter">{playlistData.title}</h3>
                   <div className="flex items-center gap-4 text-sm text-text-secondary">
                     <span className="font-bold text-white">{playlistData.uploader}</span>
@@ -71,7 +70,7 @@ const ViewRenderer = ({
       );
 
     case 'home':
-      return <HomeView recentlyPlayed={recentlyPlayed} playTrack={playTrack} getImageUrl={getImageUrl} formatTime={formatTime} toggleLike={toggleLike} likedSongs={likedSongs} handleSearch={handleSearch} setQuery={setQuery} trendingPlaylists={trendingPlaylists} fetchPlaylist={fetchPlaylist} />;
+      return <HomeView recentlyPlayed={recentlyPlayed} trendingTracks={trendingTracks} playTrack={playTrack} getImageUrl={getImageUrl} formatTime={formatTime} toggleLike={toggleLike} likedSongs={likedSongs} handleSearch={handleSearch} setQuery={setQuery} trendingPlaylists={trendingPlaylists} fetchPlaylist={fetchPlaylist} />;
     
     case 'search':
       return (
