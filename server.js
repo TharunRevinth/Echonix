@@ -147,16 +147,10 @@ app.get('/api/stream', (req, res) => {
 
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-    // Set headers for streaming
-    res.setHeader('Content-Type', 'audio/mp4'); // Defaulting to mp4/m4a
-    res.setHeader('Transfer-Encoding', 'chunked');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Accept-Ranges', 'bytes');
-
     // Arguments for yt-dlp to pipe best audio to stdout
     const args = [
         youtubeUrl,
-        '-f', 'bestaudio[ext=m4a]/bestaudio',
+        '-f', 'bestaudio[ext=m4a]/bestaudio/best',
         '-o', '-',
         '--no-playlist',
         '--no-warnings',
@@ -168,11 +162,31 @@ app.get('/api/stream', (req, res) => {
 
     const ytDlpProcess = spawn(YTDLP_PATH, args);
 
+    ytDlpProcess.stdout.on('data', (chunk) => {
+        if (!res.headersSent) {
+            res.writeHead(200, {
+                'Content-Type': 'audio/mp4',
+                'Access-Control-Allow-Origin': '*',
+                'Accept-Ranges': 'none',
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0',
+                'Connection': 'keep-alive'
+            });
+        }
+    });
+
     // Pipe the audio data directly to the user
     ytDlpProcess.stdout.pipe(res);
 
+    ytDlpProcess.on('error', (err) => {
+        log(`[Spawn Error] Failed to start yt-dlp: ${err.message}`);
+        if (!res.headersSent) res.status(500).send("Playback engine failed to start");
+    });
+
     ytDlpProcess.stderr.on('data', (data) => {
         const msg = data.toString();
+        // Only log actual errors to keep the log clean
         if (msg.includes('ERROR')) {
             log(`[yt-dlp Error] ${msg.trim()}`);
         }
@@ -246,6 +260,95 @@ app.get('/api/download', (req, res) => {
     req.on('close', () => {
         ytDlpProcess.kill();
     });
+});
+
+// --- PLAYLIST ENDPOINT ---
+app.get('/api/playlist', (req, res) => {
+    const playlistId = req.query.id;
+    if (!playlistId) return res.status(400).json({ error: "Missing Playlist ID or URL" });
+
+    log(`[Playlist] Fetching metadata for: ${playlistId}`);
+
+    // If it's a full URL, use it directly, otherwise assume it's a YT ID
+    const url = playlistId.startsWith('http') ? playlistId : `https://www.youtube.com/playlist?list=${playlistId}`;
+
+    const args = [
+        url,
+        '--dump-single-json',
+        '--flat-playlist',
+        '--playlist-end', '50', // Limit to 50 tracks for performance
+        '--no-warnings',
+        '--force-ipv4',
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+    ];
+
+    const ytDlpProcess = spawn(YTDLP_PATH, args);
+    let output = '';
+
+    ytDlpProcess.stdout.on('data', (data) => {
+        output += data.toString();
+    });
+
+    ytDlpProcess.stderr.on('data', (data) => {
+        const msg = data.toString();
+        if (msg.includes('ERROR')) log(`[Playlist Error] ${msg.trim()}`);
+    });
+
+    ytDlpProcess.on('close', (code) => {
+        if (code !== 0) {
+            return res.status(500).json({ error: "Failed to fetch playlist" });
+        }
+        try {
+            const data = JSON.parse(output);
+            const tracks = data.entries.map(entry => {
+                // Find highest res thumbnail for the track
+                const trackThumb = entry.thumbnails?.sort((a, b) => (b.width * b.height) - (a.width * a.height))[0]?.url || "";
+                
+                return {
+                    id: entry.id,
+                    title: entry.title,
+                    uploaderName: entry.uploader || entry.channel || "Unknown Artist",
+                    thumbnail: `/api/proxy-image?url=${encodeURIComponent(trackThumb)}`,
+                    duration: entry.duration || 0,
+                    url: `https://www.youtube.com/watch?v=${entry.id}`
+                };
+            });
+
+            // Find highest res thumbnail for the playlist itself
+            const playlistThumb = data.thumbnails?.sort((a, b) => (b.width * b.height) - (a.width * a.height))[0]?.url || "";
+
+            res.json({
+                title: data.title,
+                uploader: data.uploader,
+                itemCount: data.playlist_count || tracks.length,
+                thumbnail: playlistThumb ? `/api/proxy-image?url=${encodeURIComponent(playlistThumb)}` : null,
+                items: tracks
+            });
+        } catch (e) {
+            res.status(500).json({ error: "Failed to parse playlist data" });
+        }
+    });
+});
+
+// --- TRENDING PLAYLISTS ENDPOINT ---
+app.get('/api/trending-playlists', async (req, res) => {
+    try {
+        const query = req.query.q || 'top trending music playlists 2026 global';
+        const results = await ytSearch(query);
+        const playlists = results.playlists.slice(0, 15).map(p => ({
+            id: p.listId,
+            title: p.title,
+            thumbnail: `/api/proxy-image?url=${encodeURIComponent(p.thumbnail || p.image)}`,
+            uploaderName: p.author.name, // Matches getImageUrl expected property
+            videoCount: p.videoCount,
+            url: p.url,
+            engine: `http://localhost:${PORT}` // Explicitly set for getImageUrl
+        }));
+        res.json(playlists);
+    } catch (err) {
+        log(`[Trending Playlists Error] ${err.message}`);
+        res.status(500).json({ error: "Failed to fetch trending playlists" });
+    }
 });
 
 app.listen(PORT, '0.0.0.0', () => {

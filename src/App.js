@@ -36,6 +36,9 @@ function App() {
   const [isRadioLoading, setIsRadioLoading] = useState(false);
   const [radioQuery, setRadioQuery] = useState('');
   const [isMixtapeView, setIsMixtapeView] = useState(false);
+  const [playlistData, setPlaylistData] = useState(null);
+  const [isPlaylistLoading, setIsPlaylistLoading] = useState(false);
+  const [searchType, setSearchType] = useState('tracks'); // 'tracks' or 'playlists'
 
   const audioRef = useRef(null);
   const lyricsRef = useRef(null);
@@ -44,10 +47,21 @@ function App() {
   const [likedSongs, setLikedSongs] = useState(() => JSON.parse(localStorage.getItem('likedSongs') || '[]'));
   const [localTapes, setLocalTapes] = useState(() => JSON.parse(localStorage.getItem('localTapes') || '[]'));
   const [recentlyPlayed, setRecentlyPlayed] = useState(() => JSON.parse(localStorage.getItem('recentlyPlayed') || '[]'));
+  const [trendingPlaylists, setTrendingPlaylists] = useState([]);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
   // --- PERSISTENCE ---
+  useEffect(() => {
+    const loadTrending = async () => {
+      try {
+        const { data } = await fetchWithFallback('/trending-playlists');
+        setTrendingPlaylists(data);
+      } catch (e) {}
+    };
+    loadTrending();
+  }, []);
+
   useEffect(() => { localStorage.setItem('likedSongs', JSON.stringify(likedSongs)); }, [likedSongs]);
   useEffect(() => { localStorage.setItem('localTapes', JSON.stringify(localTapes)); }, [localTapes]);
   useEffect(() => { localStorage.setItem('recentlyPlayed', JSON.stringify(recentlyPlayed)); }, [recentlyPlayed]);
@@ -123,32 +137,138 @@ function App() {
     });
   };
 
+  // --- AI HELPER ---
+  const callAI = async (prompt, signal = null) => {
+    // List of models to try in order. Updated with verified IDs from OpenRouter (June 2026).
+    const models = [
+      "google/gemini-3.5-flash",
+      "liquid/lfm-2.5-1.2b-instruct:free",
+      "meta-llama/llama-3.2-3b-instruct:free",
+      "meta-llama/llama-3.3-70b-instruct:free",
+      "google/gemma-4-31b-it:free"
+    ];
+
+    for (const model of models) {
+      try {
+        const res = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
+          model: model,
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 1000 // Global limit to prevent "insufficient credits" 402 errors
+        }, {
+          headers: { 
+            "Authorization": `Bearer ${OPENROUTER_KEY}`, 
+            "X-Title": "Echonix",
+            "Content-Type": "application/json"
+          },
+          signal: signal
+        });
+        
+        if (res.data?.choices?.[0]?.message?.content) {
+          return res.data.choices[0].message.content;
+        }
+      } catch (err) {
+        if (err.name === 'AbortError' || axios.isCancel(err)) throw err;
+        console.warn(`AI model ${model} failed, trying next...`, err.response?.data || err.message);
+      }
+    }
+    throw new Error("All AI models failed or returned no content.");
+  };
+
   // --- HANDLERS ---
+  const fetchPlaylist = async (urlOrId) => {
+    setIsPlaylistLoading(true);
+    setCurrentView('playlist');
+    try {
+      const { data } = await fetchWithFallback(`/playlist?id=${encodeURIComponent(urlOrId)}`);
+      setPlaylistData(data);
+      setSearchResults(data.items);
+    } catch (err) {
+      console.error("Playlist Error", err);
+      alert("FAILED TO LOAD PLAYLIST. Ensure it is public.");
+    } finally {
+      setIsPlaylistLoading(false);
+    }
+  };
+
   const handleSearch = async (e) => {
     if (e) e.preventDefault();
     if (!query) return;
+
+    // Detect Playlist URL
+    if (query.includes('list=') || query.includes('/playlist')) {
+      fetchPlaylist(query);
+      return;
+    }
+
+    // Handle Playlist Search
+    if (searchType === 'playlists') {
+      setCurrentView('search');
+      setIsAiLoading(true);
+      try {
+        const { data } = await fetchWithFallback(`/trending-playlists?q=${encodeURIComponent(query + " music playlist")}`);
+        setSearchResults(data);
+      } catch (err) {
+        alert("PLAYLIST SEARCH OFFLINE");
+      } finally {
+        setIsAiLoading(false);
+      }
+      return;
+    }
+
     setCurrentView('search');
     
     if (isAiMode) {
       setIsAiLoading(true);
       setSearchResults([]);
       try {
-        const res = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
-          model: "google/gemini-2.0-flash-001",
-          messages: [{ role: "user", content: `Suggest 8 specific popular songs for vibe: "${query}". Return ONLY a comma-separated list of "Song - Artist".` }]
-        }, {
-          headers: { "Authorization": `Bearer ${OPENROUTER_KEY}`, "X-Title": "Echonix" }
-        });
-        const suggestions = res.data.choices?.[0]?.message?.content.split(',').map(s => s.trim()) || [];
-        let allResults = [];
-        for (const s of suggestions) {
+        const prompt = `You are a music expert. The user wants music for the vibe: "${query}". 
+        Suggest 15 specific, highly relevant popular songs that perfectly match this mood/activity.
+        Include various artists. 
+        Return ONLY a list of "Song Name - Artist Name" separated by newlines. 
+        Do not include numbers, introductory text, or explanations.`;
+        
+        const aiContent = await callAI(prompt);
+        console.log("AI Suggestions Raw:", aiContent);
+        
+        // Improved parsing for newlines and potential list markers
+        const suggestions = aiContent
+          .split('\n')
+          .map(s => s.replace(/^\d+\.\s*/, '').replace(/^- \s*/, '').trim())
+          .filter(s => s.length > 3 && s.includes('-'));
+        
+        console.log("Parsed Suggestions:", suggestions);
+
+        // Process all suggestions in parallel blocks to avoid overwhelming the server but still getting many results
+        const searchPromises = suggestions.map(async (s) => {
           try {
             const { data, engine } = await fetchWithFallback(`/search?q=${encodeURIComponent(s)}&filter=music_songs`);
-            if (data.items?.[0]) allResults.push({ ...data.items[0], engine });
-          } catch (err) {}
-        }
-        setSearchResults(filterMusicResults(allResults));
-      } catch (e) { console.error("AI Search Error", e); }
+            if (data.items && data.items.length > 0) {
+              // Take the top result for each specific AI suggestion
+              return { ...data.items[0], engine };
+            }
+          } catch (err) {
+            console.warn(`Failed search for suggestion: ${s}`, err.message);
+          }
+          return null;
+        });
+
+        const resolvedResults = await Promise.all(searchPromises);
+        const uniqueResults = [];
+        const seenIds = new Set();
+
+        // Deduplicate by ID and filter nulls
+        resolvedResults.forEach(res => {
+          if (res && !seenIds.has(res.id)) {
+            seenIds.add(res.id);
+            uniqueResults.push(res);
+          }
+        });
+
+        setSearchResults(uniqueResults);
+      } catch (e) { 
+        console.error("AI Search Error", e.message);
+        alert("AI Search failed. Check your API key and connection.");
+      }
       finally { setIsAiLoading(false); }
       return;
     }
@@ -211,30 +331,22 @@ function App() {
 
     // AI Fallback
     try {
-      const res = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
-        model: "google/gemini-2.0-flash-001",
-        messages: [{ role: "user", content: `Return ONLY the LRC format lyrics for "${cleanT}" by "${cleanA}".` }]
-      }, {
-        headers: { "Authorization": `Bearer ${OPENROUTER_KEY}`, "X-Title": "Echonix" },
-        signal: lyricsAbortController.current.signal
-      });
-      const aiLyrics = res.data.choices?.[0]?.message?.content;
-      if (aiLyrics) setLyrics(parseLRC(aiLyrics));
+      const prompt = `Return ONLY the LRC format lyrics for "${cleanT}" by "${cleanA}".`;
+      const aiContent = await callAI(prompt, lyricsAbortController.current.signal);
+      if (aiContent) setLyrics(parseLRC(aiContent));
       else setLyrics([{ time: 0, text: "Lyrics not found." }]);
-    } catch (err) { setLyrics([{ time: 0, text: "Lyrics not found." }]); }
+    } catch (err) { 
+      if (err.name !== 'AbortError') setLyrics([{ time: 0, text: "Lyrics not found." }]); 
+    }
   };
 
   const explainLyrics = async () => {
     if (!lyrics.length) return;
     setExplanation("AI analyzing vibe...");
     try {
-      const res = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
-        model: "google/gemini-2.0-flash-001",
-        messages: [{ role: "user", content: `Explain the vibe of these lyrics in 3 technical points: ${JSON.stringify(lyrics)}` }]
-      }, {
-        headers: { "Authorization": `Bearer ${OPENROUTER_KEY}`, "X-Title": "Echonix" }
-      });
-      setExplanation(res.data.choices?.[0]?.message?.content || "Analysis failed.");
+      const prompt = `Explain the vibe of these lyrics in 3 technical points: ${JSON.stringify(lyrics)}`;
+      const aiContent = await callAI(prompt);
+      setExplanation(aiContent || "Analysis failed.");
     } catch (e) { setExplanation("AI Offline."); }
   };
 
@@ -335,14 +447,17 @@ function App() {
             setIsMixtapeView={setIsMixtapeView}
             isMixtapeView={isMixtapeView}
             queue={queue}
-            currentIndex={currentIndex}
-            setQueue={setQueue}
-            setCurrentIndex={setCurrentIndex}
             explanation={explanation}
             explainLyrics={explainLyrics}
             lyrics={lyrics}
             currentTime={currentTime}
             lyricsRef={lyricsRef}
+            playlistData={playlistData}
+            isPlaylistLoading={isPlaylistLoading}
+            trendingPlaylists={trendingPlaylists}
+            fetchPlaylist={fetchPlaylist}
+            searchType={searchType}
+            setSearchType={setSearchType}
           />
         </main>
       </div>
