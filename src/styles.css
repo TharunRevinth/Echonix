@@ -1,16 +1,6 @@
-@import "tailwindcss";
-
-@theme {
-  --color-bg-dark: #080809;
-  --color-bg-card: #111112;
-  --color-accent-purple: #9D50FF;
-  --color-accent-blue: #0085FF;
-  --color-accent-teal: #00F0FF;
-  --color-warm-red: #FF4D4D;
-  --color-cassette-orange: #FF8A00;
-  --color-text-primary: #FFFFFF;
-  --color-text-secondary: #8E8E93;
-}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Orbitron:wght@400;700;900&display=swap');
 

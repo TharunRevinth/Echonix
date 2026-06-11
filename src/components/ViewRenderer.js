@@ -7,7 +7,7 @@ const ViewRenderer = ({
   playTrack, getImageUrl, formatTime, recentlyPlayed, likedSongs, toggleLike, handleDownload, addToQueue,
   radioStations, isRadioLoading, radioQuery, setRadioQuery, fetchRadioStations, playRadioStation,
   setIsMixtapeView, isMixtapeView, queue, currentIndex, setQueue, setCurrentIndex,
-  explanation, explainLyrics, lyrics, currentTime, lyricsRef,
+  lyrics, currentTime, lyricsRef,
   playlistData, isPlaylistLoading, trendingPlaylists, trendingTracks, fetchPlaylist,
   searchType, setSearchType
 }) => {

@@ -48,22 +48,26 @@ export const cleanString = (str) => {
 };
 
 export const parseLRC = (lrcText) => {
+  if (!lrcText) return [];
   const lines = lrcText.split('\n');
   const result = [];
-  const timeRegex = /\[(\d+):(\d+\.?\d*)\]/;
+  const timeRegex = /\[(\d+):(\d+\.?\d*)\]/g;
   
   lines.forEach(line => {
-    const match = timeRegex.exec(line);
-    if (match) {
-      const minutes = parseInt(match[1]);
-      const seconds = parseFloat(match[2]);
+    const timestamps = [...line.matchAll(timeRegex)];
+    if (timestamps.length > 0) {
       const text = line.replace(timeRegex, '').trim();
-      if (text) result.push({ time: minutes * 60 + seconds, text });
-    } else if (line.trim().length > 20) {
-      result.push({ time: -1, text: line.trim() });
+      if (text) {
+        timestamps.forEach(match => {
+          const minutes = parseInt(match[1]);
+          const seconds = parseFloat(match[2]);
+          result.push({ time: minutes * 60 + seconds, text });
+        });
+      }
     }
   });
-  return result;
+  
+  return result.sort((a, b) => a.time - b.time);
 };
 
 export const getHost = () => {

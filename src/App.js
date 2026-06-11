@@ -22,7 +22,6 @@ function App() {
   const [currentTrack, setCurrentTrack] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [lyrics, setLyrics] = useState([]);
-  const [explanation, setExplanation] = useState('');
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [volume, setVolume] = useState(0.7);
   const [isAiMode, setIsAiMode] = useState(false);
@@ -315,6 +314,24 @@ function App() {
     const cleanA = cleanString(a);
     setLyrics([{ time: 0, text: "Searching lyrics..." }]);
     
+    // 1. Try LRCLIB for Synced Lyrics
+    try {
+      const res = await axios.get(`https://lrclib.net/api/get?artist_name=${encodeURIComponent(cleanA)}&track_name=${encodeURIComponent(cleanT)}`, {
+        signal: lyricsAbortController.current.signal
+      });
+      if (res.data.syncedLyrics) {
+        setLyrics(parseLRC(res.data.syncedLyrics));
+        return;
+      } else if (res.data.plainLyrics) {
+        setLyrics(res.data.plainLyrics.split('\n').filter(l => l.trim()).map((l, i, arr) => ({
+          time: (i / arr.length) * (duration || 180),
+          text: l.trim()
+        })));
+        return;
+      }
+    } catch (e) {}
+
+    // 2. Fallback to Lyrics.ovh
     try {
       const res = await axios.get(`https://api.lyrics.ovh/v1/${encodeURIComponent(cleanA)}/${encodeURIComponent(cleanT)}`, {
         signal: lyricsAbortController.current.signal
@@ -328,25 +345,7 @@ function App() {
       }
     } catch (e) {}
 
-    // AI Fallback
-    try {
-      const prompt = `Return ONLY the LRC format lyrics for "${cleanT}" by "${cleanA}".`;
-      const aiContent = await callAI(prompt, lyricsAbortController.current.signal);
-      if (aiContent) setLyrics(parseLRC(aiContent));
-      else setLyrics([{ time: 0, text: "Lyrics not found." }]);
-    } catch (err) { 
-      if (err.name !== 'AbortError') setLyrics([{ time: 0, text: "Lyrics not found." }]); 
-    }
-  };
-
-  const explainLyrics = async () => {
-    if (!lyrics.length) return;
-    setExplanation("AI analyzing vibe...");
-    try {
-      const prompt = `Explain the vibe of these lyrics in 3 technical points: ${JSON.stringify(lyrics)}`;
-      const aiContent = await callAI(prompt);
-      setExplanation(aiContent || "Analysis failed.");
-    } catch (e) { setExplanation("AI Offline."); }
+    setLyrics([{ time: 0, text: "Lyrics not found." }]);
   };
 
   const handleNext = () => {
@@ -480,8 +479,6 @@ function App() {
             setIsMixtapeView={setIsMixtapeView}
             isMixtapeView={isMixtapeView}
             queue={queue}
-            explanation={explanation}
-            explainLyrics={explainLyrics}
             lyrics={lyrics}
             currentTime={currentTime}
             lyricsRef={lyricsRef}
@@ -525,8 +522,6 @@ function App() {
         repeatMode={repeatMode}
         setRepeatMode={setRepeatMode}
         lyrics={lyrics}
-        explanation={explanation}
-        explainLyrics={explainLyrics}
         lyricsRef={lyricsRef}
       />
 

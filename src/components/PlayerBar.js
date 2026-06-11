@@ -1,11 +1,11 @@
 import React from 'react';
 import { Play, Pause, SkipForward, SkipBack, Volume2, Heart, Repeat, Shuffle, Download, CassetteTape, ChevronDown, Mic2, Cpu, Info } from 'lucide-react';
-
-const PlayerBar = ({ 
-  currentTrack, isPlaying, setIsPlaying, currentTime, duration, handleSeek, 
-  handleNext, handlePrev, volume, setVolume, formatTime, getImageUrl,
-  toggleLike, likedSongs, handleDownload, toggleLocalTape, localTapes,
-  isPlayerExpanded, setIsPlayerExpanded, lyrics, explanation, explainLyrics, lyricsRef,
+const PlayerBar = ({
+  currentTrack, isPlaying, setIsPlaying, currentTime, duration,
+  handleSeek, handleNext, handlePrev, volume, setVolume,
+  formatTime, getImageUrl, toggleLike, likedSongs, handleDownload,
+  toggleLocalTape, localTapes,
+  isPlayerExpanded, setIsPlayerExpanded, lyrics, lyricsRef,
   isShuffle, setIsShuffle, repeatMode, setRepeatMode
 }) => {
   if (!currentTrack) return null;
@@ -61,27 +61,6 @@ const PlayerBar = ({
                       onClick={() => toggleLike(currentTrack)}
                       className={`w-10 h-10 flex-shrink-0 cursor-pointer transition-all hover:scale-110 ${isLiked ? 'text-accent-purple fill-accent-purple' : 'text-white/20 hover:text-white'}`} 
                     />
-                 </div>
-
-                 {/* AI Insights Card with Glassmorphism */}
-                 <div className="p-6 rounded-[32px] bg-white/[0.03] border border-white/10 backdrop-blur-xl shadow-2xl">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-2">
-                        <Cpu className="w-4 h-4 text-accent-purple" />
-                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-accent-purple">AI Intelligence</span>
-                      </div>
-                      {!explanation && (
-                        <button 
-                          onClick={explainLyrics}
-                          className="px-4 py-1.5 rounded-full bg-accent-purple text-white text-[10px] font-black hover:scale-105 transition-all shadow-glow-purple"
-                        >
-                          ANALYZE
-                        </button>
-                      )}
-                    </div>
-                    <p className="text-sm text-text-secondary/80 leading-relaxed italic font-medium">
-                      {explanation || "Decrypt the sonic signature of this frequency with our neural analysis engine."}
-                    </p>
                  </div>
               </div>
             </div>

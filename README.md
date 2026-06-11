@@ -66,7 +66,6 @@ Echonix is a sophisticated, full-stack music streaming application that integrat
 - **AI Vibe Search:** Toggle the "AI Mode" in the search bar and describe the atmosphere or mood you're looking for (e.g., "Lo-fi beats for late-night coding").
 - **Radio FM:** Navigate to the Radio view to explore global frequencies and discover new music from around the world.
 - **Downloads:** Click the download icon on any track to save it as an MP3 file to your local device.
-- **Lyrics Analysis:** While a track is playing, open the lyrics view and click "Analyze Vibe" to get AI-generated insights into the song.
 
 ## Contributing
 
