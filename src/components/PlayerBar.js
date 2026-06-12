@@ -1,13 +1,17 @@
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import { Play, Pause, SkipForward, SkipBack, Volume2, Heart, Repeat, Shuffle, Download, CassetteTape, ChevronDown, Mic2, Cpu, Info } from 'lucide-react';
+
 const PlayerBar = ({
   currentTrack, isPlaying, setIsPlaying, currentTime, duration,
   handleSeek, handleNext, handlePrev, volume, setVolume,
   formatTime, getImageUrl, toggleLike, likedSongs, handleDownload,
   toggleLocalTape, localTapes,
-  isPlayerExpanded, setIsPlayerExpanded, lyrics, lyricsRef,
+  isPlayerExpanded, setIsPlayerExpanded, lyrics, lyricsOffset, setLyricsOffset, lyricsRef,
   isShuffle, setIsShuffle, repeatMode, setRepeatMode
 }) => {
+  const [localSeekTime, setLocalSeekTime] = useState(null);
+  const userScrollTimeout = useRef(null);
+
   if (!currentTrack) return null;
 
   const isLiked = likedSongs.find(s => s.url === currentTrack.url);
@@ -18,6 +22,29 @@ const PlayerBar = ({
     else if (repeatMode === 'all') setRepeatMode('one');
     else setRepeatMode('off');
   };
+
+  const onSeekChange = (e) => {
+    setLocalSeekTime(parseFloat(e.target.value));
+  };
+
+  const onSeekMouseUp = (e) => {
+    if (localSeekTime !== null) {
+      handleSeek({ target: { value: localSeekTime } });
+      setLocalSeekTime(null);
+    }
+  };
+
+  const handleLyricsInteraction = () => {
+    if (lyricsRef.current) {
+        lyricsRef.current.isUserInteracting = true;
+        if (userScrollTimeout.current) clearTimeout(userScrollTimeout.current);
+        userScrollTimeout.current = setTimeout(() => {
+            if (lyricsRef.current) lyricsRef.current.isUserInteracting = false;
+        }, 3000);
+    }
+  };
+
+  const displayTime = localSeekTime !== null ? localSeekTime : currentTime;
 
   return (
     <>
@@ -67,17 +94,56 @@ const PlayerBar = ({
 
             {/* Right: Immersive Lyrics */}
             <div className="flex-1 w-full h-full flex flex-col min-h-0">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 px-4 border-b border-white/5 pb-4">
+                 <h3 className="text-xs font-black uppercase tracking-[0.3em] text-white/30 hidden md:block">Live Transcript</h3>
+                 
+                 <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-start md:justify-end">
+                   {lyricsOffset > 5 && (
+                      <button 
+                        onClick={() => handleSeek({ target: { value: lyricsOffset } })}
+                        className="flex items-center gap-2 px-4 py-2 bg-accent-purple text-white text-[10px] font-black uppercase tracking-widest rounded-full shadow-glow-purple animate-bounce shrink-0"
+                      >
+                        <SkipForward className="w-3 h-3" />
+                        Skip Intro
+                      </button>
+                   )}
+                   <div className="flex items-center gap-4 bg-white/5 rounded-full px-4 py-2 border border-white/10 shrink-0">
+                      <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest hidden sm:inline">Offset</span>
+                      <div className="flex items-center gap-3">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setLyricsOffset(prev => prev - 1); }}
+                          className="w-6 h-6 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors text-sm font-bold"
+                        >
+                          -
+                        </button>
+                        <span className={`text-[10px] font-mono font-black w-10 text-center ${lyricsOffset !== 0 ? 'text-accent-purple' : 'text-white/40'}`}>
+                          {lyricsOffset > 0 ? '+' : ''}{lyricsOffset}s
+                        </span>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setLyricsOffset(prev => prev + 1); }}
+                          className="w-6 h-6 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors text-sm font-bold"
+                        >
+                          +
+                        </button>
+                      </div>
+                   </div>
+                 </div>
+              </div>
               <div 
                 ref={lyricsRef}
-                className="flex-1 overflow-y-auto pr-4 space-y-10 custom-scrollbar scroll-smooth mask-fade-edges py-10"
+                onWheel={handleLyricsInteraction}
+                onTouchMove={handleLyricsInteraction}
+                onMouseDown={handleLyricsInteraction}
+                className="flex-1 overflow-y-auto pr-4 space-y-10 custom-scrollbar scroll-smooth mask-fade-edges pb-20"
               >
                 {lyrics && lyrics.length > 0 ? lyrics.map((line, i) => {
-                  const isActive = line.time !== -1 && line.time <= currentTime && (lyrics[i+1]?.time > currentTime || !lyrics[i+1]);
+                  const adjustedTime = line.time === -1 ? -1 : line.time + lyricsOffset;
+                  const isActive = adjustedTime !== -1 && adjustedTime <= currentTime && (lyrics[i+1]?.time + lyricsOffset > currentTime || !lyrics[i+1]);
                   return (
                     <p 
                       key={i} 
                       className={`text-3xl md:text-4xl lg:text-6xl font-black transition-all duration-700 origin-left leading-tight ${isActive ? 'text-white translate-x-4 scale-100 opacity-100 blur-0' : 'text-white/10 scale-95 opacity-20 blur-[2px] hover:opacity-40 cursor-pointer hover:blur-0'}`}
-                      onClick={() => line.time !== -1 && handleSeek({ target: { value: line.time } })}
+                      onClick={() => line.time !== -1 && handleSeek({ target: { value: line.time + lyricsOffset } })}
                     >
                       {line.text}
                     </p>
@@ -100,23 +166,25 @@ const PlayerBar = ({
                     type="range"
                     min="0"
                     max={duration || 0}
-                    value={currentTime}
-                    onChange={handleSeek}
+                    value={displayTime}
+                    onChange={onSeekChange}
+                    onMouseUp={onSeekMouseUp}
+                    onTouchEnd={onSeekMouseUp}
                     className="absolute inset-0 w-full h-full opacity-0 z-20 cursor-pointer"
                   />
                   <div className="absolute inset-0 bg-white/5 rounded-full overflow-hidden">
                     <div 
                       className="h-full bg-white/20" 
-                      style={{ width: `${(currentTime / (duration || 1)) * 100}%` }} 
+                      style={{ width: `${(displayTime / (duration || 1)) * 100}%` }} 
                     />
                   </div>
                   <div 
                     className="absolute inset-y-0 left-0 bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,0.5)] transition-all duration-150" 
-                    style={{ width: `${(currentTime / (duration || 1)) * 100}%` }} 
+                    style={{ width: `${(displayTime / (duration || 1)) * 100}%` }} 
                   />
                 </div>
                 <div className="flex justify-between mt-4 px-1 opacity-60">
-                  <span className="text-xs font-mono font-bold text-white">{formatTime(currentTime)}</span>
+                  <span className="text-xs font-mono font-bold text-white">{formatTime(displayTime)}</span>
                   <span className="text-xs font-mono font-bold text-white">{formatTime(duration)}</span>
                 </div>
              </div>

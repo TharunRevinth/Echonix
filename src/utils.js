@@ -36,14 +36,22 @@ export const cleanString = (str) => {
     .replace(/\(hd\)/gi, '')
     .replace(/\(4k\)/gi, '')
     .replace(/\(8k\)/gi, '')
-    .replace(/full video.*/gi, '')
-    .replace(/lyric video.*/gi, '')
-    .replace(/official video.*/gi, '')
-    .replace(/\|.*/gi, '')
-    .replace(/ft\..*/gi, '')
-    .replace(/feat\..*/gi, '')
+    .replace(/video song/gi, '')
+    .replace(/audio song/gi, '')
+    .replace(/lyrical song/gi, '')
+    .replace(/lyrical/gi, '')
+    .replace(/full song/gi, '')
+    .replace(/full video/gi, '')
+    .replace(/lyric video/gi, '')
+    .replace(/official video/gi, '')
+    .replace(/music video/gi, '')
+    .replace(/\|/g, ' ') // Replace pipe with space instead of stripping everything after it
+    .replace(/-/g, ' ')  // Replace dash with space for better search tokens
+    .replace(/ft\./gi, ' ')
+    .replace(/feat\./gi, ' ')
     .replace(/ - Topic$/gi, '')
     .replace(/\[.*\]/g, '')
+    .replace(/\s+/g, ' ')
     .trim();
 };
 

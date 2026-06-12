@@ -4,14 +4,11 @@ const cors = require('cors');
 const axios = require('axios');
 const ytSearch = require('yt-search');
 const youtubedl = require('youtube-dl-exec');
-const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 5001;
 
 const log = (msg) => {
-    const timestamp = new Date().toISOString();
-    fs.appendFileSync('server.log', `[${timestamp}] ${msg}\n`);
-    console.log(msg);
+    console.log(`[${new Date().toISOString()}] ${msg}`);
 };
 
 app.use(cors());
@@ -32,63 +29,100 @@ const PIPED_INSTANCES = [
     "https://pipedapi.synced.cloud"
 ];
 
-// --- SEARCH ENDPOINT ---
+// --- SEARCH ENDPOINT (Powered by LRCLIB + iTunes for Tracks) ---
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
-    const filter = req.query.filter; // music_songs
+    const filter = req.query.filter; // music_songs or playlists
     if (!query) return res.status(400).json({ error: "Missing query" });
 
     try {
-        // Enhance query for better music results if filter is set
-        const searchQuery = filter === 'music_songs' ? `${query} music` : query;
-        const results = await ytSearch(searchQuery);
-        
-        let videos = results.videos;
-
-        // If filtering for songs, remove very long videos, very short clips, and non-music keywords
-        if (filter === 'music_songs') {
-            videos = videos.filter(v => {
-                const title = v.title.toLowerCase();
-                const channel = v.author.name.toLowerCase();
-                
-                const isTooLong = v.seconds > 540; // Filter out anything over 9 mins
-                const isTooShort = v.seconds < 60; // Filter out clips/shorts under 1 minute
-                
-                const nonMusicKeywords = [
-                    'vlog', 'podcast', 'tutorial', 'full episode', 'trailer', 
-                    'teaser', 'review', 'reaction', 'interview', 'making of', 
-                    'behind the scenes', 'blockbuster', 'promo', 'movie talk',
-                    'preview', 'unboxing', 'live stream'
-                ];
-
-                const isNonMusic = nonMusicKeywords.some(keyword => title.includes(keyword));
-                const isReviewChannel = channel.includes('review') || channel.includes('news') || channel.includes('fans club');
-                
-                return !isTooLong && !isTooShort && !isNonMusic && !isReviewChannel;
+        if (filter === 'playlists') {
+            const results = await ytSearch(query + " playlist");
+            return res.json({ 
+                items: results.playlists.slice(0, 15).map(v => ({ 
+                    title: v.title, uploaderName: v.author.name, thumbnail: v.thumbnail, url: v.url, id: v.listId, videoCount: v.videoCount 
+                }))
             });
         }
 
-        videos = videos.slice(0, 15);
+        // Tracks Search via LRCLIB
+        const lrclibRes = await axios.get(`https://lrclib.net/api/search?q=${encodeURIComponent(query)}`, { timeout: 8000 });
+        let tracks = lrclibRes.data || [];
         
-        return res.json({ 
-            items: videos.map(v => ({ 
-                title: v.title, 
-                uploaderName: v.author.name, 
-                thumbnail: `/api/proxy-image?url=${encodeURIComponent(v.thumbnail)}`, 
-                url: v.url, 
-                id: v.videoId,
-                duration: v.seconds
-            }))
+        if (tracks.length === 0) {
+            throw new Error("No LRCLIB results");
+        }
+
+        tracks = tracks.slice(0, 15);
+
+        // Fetch iTunes artwork concurrently
+        const items = await Promise.all(tracks.map(async (t) => {
+            let thumbnail = 'https://via.placeholder.com/500/111112/9D50FF?text=Music';
+            try {
+                const itunesRes = await axios.get(`https://itunes.apple.com/search?term=${encodeURIComponent(t.name + ' ' + t.artistName)}&entity=song&limit=1`, { timeout: 3000 });
+                if (itunesRes.data.results && itunesRes.data.results.length > 0) {
+                    thumbnail = itunesRes.data.results[0].artworkUrl100.replace('100x100bb.jpg', '500x500bb.jpg');
+                }
+            } catch (e) {
+                // Ignore iTunes failure, use placeholder
+            }
+
+            return {
+                id: t.id.toString(), // Use LRCLIB ID temporarily
+                title: t.name,
+                uploaderName: t.artistName,
+                albumName: t.albumName,
+                thumbnail: thumbnail,
+                duration: t.duration,
+                isLrclib: true,
+                syncedLyrics: t.syncedLyrics,
+                plainLyrics: t.plainLyrics
+            };
+        }));
+
+        return res.json({ items });
+
+    } catch (err) {
+        log(`[LRCLIB Search Fallback] ${err.message}`);
+        // Fallback to YouTube if LRCLIB fails
+        try {
+            const results = await ytSearch(query);
+            return res.json({ 
+                items: results.videos.slice(0, 15).map(v => ({ 
+                    title: v.title, uploaderName: v.author.name, thumbnail: `/api/proxy-image?url=${encodeURIComponent(v.thumbnail)}`, url: v.url, id: v.videoId, duration: v.seconds 
+                }))
+            });
+        } catch (ytErr) {
+            res.status(500).json({ error: "Search unavailable" });
+        }
+    }
+});
+
+// --- RESOLVE YOUTUBE ENDPOINT ---
+// Takes a track's metadata and finds the best YouTube match for audio
+app.get('/api/resolve-youtube', async (req, res) => {
+    const { title, artist } = req.query;
+    if (!title || !artist) return res.status(400).json({ error: "Missing title or artist" });
+
+    try {
+        const searchQuery = `${title} ${artist} audio`;
+        const results = await ytSearch(searchQuery);
+        
+        // Find the best match (prioritize music-like results)
+        const bestMatch = results.videos.find(v => {
+            const t = v.title.toLowerCase();
+            return v.seconds > 60 && v.seconds < 600 && !['vlog', 'reaction', 'review'].some(k => t.includes(k));
+        }) || results.videos[0];
+
+        if (!bestMatch) return res.status(404).json({ error: "No YouTube match found" });
+
+        res.json({
+            videoId: bestMatch.videoId,
+            url: bestMatch.url,
+            duration: bestMatch.seconds
         });
     } catch (err) {
-        console.error("Local search failed, falling back to Piped...");
-        for (const instance of PIPED_INSTANCES) {
-            try {
-                const pRes = await axios.get(`${instance}/search?q=${encodeURIComponent(query)}&filter=music_songs`, { timeout: 4000 });
-                if (pRes.data && pRes.data.items) return res.json(pRes.data);
-            } catch (pErr) {}
-        }
-        res.status(500).json({ error: "All search engines offline" });
+        res.status(500).json({ error: "Resolution failed" });
     }
 });
 
@@ -433,6 +467,8 @@ app.post('/api/ai-chat', async (req, res) => {
         res.status(err.response?.status || 500).json(err.response?.data || { error: "AI Request Failed" });
     }
 });
+
+// Spotify Auth removed
 
 app.listen(PORT, '0.0.0.0', () => {
     log(`Echonix Pure-Proxy Server active on port ${PORT}`);

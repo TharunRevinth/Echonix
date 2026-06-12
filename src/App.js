@@ -22,6 +22,7 @@ function App() {
   const [currentTrack, setCurrentTrack] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [lyrics, setLyrics] = useState([]);
+  const [lyricsOffset, setLyricsOffset] = useState(0);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [volume, setVolume] = useState(0.7);
   const [isAiMode, setIsAiMode] = useState(false);
@@ -43,6 +44,7 @@ function App() {
   const audioRef = useRef(null);
   const lyricsRef = useRef(null);
   const lyricsAbortController = useRef(null);
+  const lastActiveIndex = useRef(-1);
 
   const [likedSongs, setLikedSongs] = useState(() => JSON.parse(localStorage.getItem('likedSongs') || '[]'));
   const [localTapes, setLocalTapes] = useState(() => JSON.parse(localStorage.getItem('localTapes') || '[]'));
@@ -85,21 +87,31 @@ function App() {
   useEffect(() => {
     if (lyricsRef.current && lyrics.length > 0) {
       const activeIndex = lyrics.reduce((acc, line, idx) => {
-        if (line.time !== -1 && line.time <= currentTime) return idx;
+        const adjustedTime = line.time === -1 ? -1 : line.time + lyricsOffset;
+        if (adjustedTime !== -1 && adjustedTime <= currentTime) return idx;
         return acc;
       }, 0);
 
-      const lineElements = lyricsRef.current.children;
-      if (lineElements[activeIndex]) {
-        const targetElement = lineElements[activeIndex];
-        const containerHeight = lyricsRef.current.clientHeight;
-        lyricsRef.current.scrollTo({
-          top: targetElement.offsetTop - (containerHeight / 3),
-          behavior: 'smooth'
-        });
+      // Only scroll if the active line has changed, to prevent animation jitter,
+      // AND if the user is not currently manually scrolling
+      if (activeIndex !== lastActiveIndex.current && (!lyricsRef.current.isUserInteracting)) {
+        lastActiveIndex.current = activeIndex;
+        const lineElements = lyricsRef.current.children;
+        if (lineElements[activeIndex]) {
+          const targetElement = lineElements[activeIndex];
+          const containerHeight = lyricsRef.current.clientHeight;
+          lyricsRef.current.scrollTo({
+            top: targetElement.offsetTop - (containerHeight / 3),
+            behavior: 'smooth'
+          });
+        }
+      } else if (activeIndex !== lastActiveIndex.current) {
+         // Silently update the index so it doesn't try to scroll again later 
+         // unless the singer moves to a NEW line after the user stopped scrolling
+         lastActiveIndex.current = activeIndex;
       }
     }
-  }, [currentTime, lyrics]);
+  }, [currentTime, lyrics, lyricsOffset]);
 
   // --- ENGINE LOGIC ---
   const fetchWithFallback = async (endpoint) => {
@@ -286,62 +298,103 @@ function App() {
     try {
       if (newQueue) {
         setQueue(newQueue);
-        const index = newQueue.findIndex(t => t.url === track.url);
+        const index = newQueue.findIndex(t => t.id === track.id || t.url === track.url);
         setCurrentIndex(index !== -1 ? index : 0);
       } else if (queue.length > 0) {
-        const index = queue.findIndex(t => t.url === track.url);
+        const index = queue.findIndex(t => t.id === track.id || t.url === track.url);
         if (index !== -1) setCurrentIndex(index);
       }
 
-      const videoId = track.id || track.url?.split('v=')[1];
+      let videoId = track.id || track.url?.split('v=')[1];
+      let ytDuration = track.duration;
+
+      // --- LRCLIB RESOLUTION ---
+      // If it's a track from LRCLIB search, we need to find its YouTube counterpart
+      if (track.isLrclib) {
+        setLyrics([{ time: 0, text: "Resolving audio frequency..." }]);
+        const resolveRes = await axios.get(`http://${getHost()}:5001/api/resolve-youtube?title=${encodeURIComponent(track.title)}&artist=${encodeURIComponent(track.uploaderName)}`);
+        videoId = resolveRes.data.videoId;
+        ytDuration = resolveRes.data.duration;
+      }
+
       const { data, engine } = await fetchWithFallback(`/streams/${videoId}`);
       
       let streamUrl;
       if (data.isLocalStream) streamUrl = `${engine}/stream?id=${videoId}`;
       else streamUrl = (data.audioStreams?.find(s => s.format === 'M4A') || data.audioStreams?.[0])?.url;
 
-      setCurrentTrack({ ...track, streamUrl, engine });
+      const updatedTrack = { ...track, streamUrl, engine, videoId, ytDuration };
+      setCurrentTrack(updatedTrack);
       setIsPlaying(true);
-      fetchLyrics(track.title, track.uploaderName);
-      setRecentlyPlayed(prev => [track, ...prev.filter(t => t.url !== track.url)].slice(0, 50));
-    } catch (err) { alert("PLAYBACK ENGINE OFFLINE"); }
+      setLyricsOffset(0); 
+
+      // Use the updated track which might contain lyrics from search
+      fetchLyrics(updatedTrack);
+      setRecentlyPlayed(prev => [updatedTrack, ...prev.filter(t => t.id !== track.id)].slice(0, 50));
+    } catch (err) { alert("PLAYBACK ENGINE OFFLINE OR RESOLUTION FAILED"); }
   };
 
-  const fetchLyrics = async (t, a) => {
+  const fetchLyrics = async (track) => {
     if (lyricsAbortController.current) lyricsAbortController.current.abort();
     lyricsAbortController.current = new AbortController();
-    const cleanT = cleanString(t);
-    const cleanA = cleanString(a);
+    
+    // 1. If we already have lyrics from LRCLIB search
+    if (track.syncedLyrics) {
+      setLyrics(parseLRC(track.syncedLyrics));
+      if (track.ytDuration && track.duration) {
+          const diff = Math.floor(track.ytDuration - track.duration);
+          if (diff > 2) setLyricsOffset(diff);
+      }
+      return;
+    } else if (track.plainLyrics) {
+      setLyrics(track.plainLyrics.split('\n').filter(l => l.trim()).map((l, i, arr) => ({
+        time: (i / arr.length) * (track.duration || track.ytDuration || 180),
+        text: l.trim()
+      })));
+      return;
+    }
+
+    const cleanT = cleanString(track.title);
+    const cleanA = cleanString(track.uploaderName || track.artistName);
     setLyrics([{ time: 0, text: "Searching lyrics..." }]);
     
-    // 1. Try LRCLIB for Synced Lyrics
+    // 2. Try LRCLIB for Synced Lyrics
     try {
+      // Step A: Specific lookup
       const res = await axios.get(`https://lrclib.net/api/get?artist_name=${encodeURIComponent(cleanA)}&track_name=${encodeURIComponent(cleanT)}`, {
         signal: lyricsAbortController.current.signal
       });
       if (res.data.syncedLyrics) {
         setLyrics(parseLRC(res.data.syncedLyrics));
-        return;
-      } else if (res.data.plainLyrics) {
-        setLyrics(res.data.plainLyrics.split('\n').filter(l => l.trim()).map((l, i, arr) => ({
-          time: (i / arr.length) * (duration || 180),
-          text: l.trim()
-        })));
+        if (res.data.duration && track.ytDuration) {
+            const diff = Math.floor(track.ytDuration - res.data.duration);
+            if (diff > 2) setLyricsOffset(diff);
+        }
         return;
       }
     } catch (e) {}
 
-    // 2. Fallback to Lyrics.ovh
     try {
-      const res = await axios.get(`https://api.lyrics.ovh/v1/${encodeURIComponent(cleanA)}/${encodeURIComponent(cleanT)}`, {
+      // Step B: Broader search
+      const searchRes = await axios.get(`https://lrclib.net/api/search?q=${encodeURIComponent(cleanT + " " + cleanA)}`, {
         signal: lyricsAbortController.current.signal
       });
-      if (res.data.lyrics) { 
-        setLyrics(res.data.lyrics.split('\n').filter(l => l.trim()).map((l, i, arr) => ({
-          time: (i / arr.length) * (duration || 180),
-          text: l.trim()
-        })));
-        return; 
+      if (searchRes.data && searchRes.data.length > 0) {
+        const bestMatch = searchRes.data.find(l => l.syncedLyrics) || searchRes.data[0];
+        if (bestMatch.syncedLyrics) {
+          setLyrics(parseLRC(bestMatch.syncedLyrics));
+          if (bestMatch.duration && track.ytDuration) {
+              const diff = Math.floor(track.ytDuration - bestMatch.duration);
+              if (diff > 2) setLyricsOffset(diff);
+          }
+          return;
+        } else if (bestMatch.plainLyrics) {
+          setLyrics(bestMatch.plainLyrics.split('\n').filter(l => l.trim()).map((l, i, arr) => ({
+            time: (i / arr.length) * (bestMatch.duration || track.ytDuration || 180),
+            text: l.trim()
+          })));
+          return;
+        }
       }
     } catch (e) {}
 
@@ -522,6 +575,8 @@ function App() {
         repeatMode={repeatMode}
         setRepeatMode={setRepeatMode}
         lyrics={lyrics}
+        lyricsOffset={lyricsOffset}
+        setLyricsOffset={setLyricsOffset}
         lyricsRef={lyricsRef}
       />
 
