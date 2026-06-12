@@ -134,15 +134,25 @@ const PlayerBar = ({
                 onWheel={handleLyricsInteraction}
                 onTouchMove={handleLyricsInteraction}
                 onMouseDown={handleLyricsInteraction}
-                className="flex-1 overflow-y-auto pr-4 space-y-10 custom-scrollbar scroll-smooth mask-fade-edges pb-20"
+                className="flex-1 overflow-y-auto pr-4 space-y-6 md:space-y-10 custom-scrollbar scroll-smooth mask-fade-edges py-[40vh]"
               >
                 {lyrics && lyrics.length > 0 ? lyrics.map((line, i) => {
                   const adjustedTime = line.time === -1 ? -1 : line.time + lyricsOffset;
                   const isActive = adjustedTime !== -1 && adjustedTime <= currentTime && (lyrics[i+1]?.time + lyricsOffset > currentTime || !lyrics[i+1]);
+                  const isPassed = adjustedTime !== -1 && adjustedTime < currentTime && !isActive;
+
                   return (
                     <p 
                       key={i} 
-                      className={`text-3xl md:text-4xl lg:text-6xl font-black transition-all duration-700 origin-left leading-tight ${isActive ? 'text-white translate-x-4 scale-100 opacity-100 blur-0' : 'text-white/10 scale-95 opacity-20 blur-[2px] hover:opacity-40 cursor-pointer hover:blur-0'}`}
+                      className={`
+                        text-xl md:text-3xl lg:text-4xl font-extrabold transition-all duration-300 origin-left leading-tight cursor-pointer py-2
+                        ${isActive 
+                          ? 'text-white opacity-100 blur-0' 
+                          : isPassed
+                            ? 'text-white/20 opacity-30'
+                            : 'text-white/10 opacity-15 hover:opacity-40'
+                        }
+                      `}
                       onClick={() => line.time !== -1 && handleSeek({ target: { value: line.time + lyricsOffset } })}
                     >
                       {line.text}

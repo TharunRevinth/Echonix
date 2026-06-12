@@ -24,60 +24,6 @@ export const formatTime = (t) => {
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
-export const cleanString = (str) => {
-  if (!str) return "";
-  return str
-    .replace(/\(official video\)/gi, '')
-    .replace(/\(lyrics\)/gi, '')
-    .replace(/\(lyric video\)/gi, '')
-    .replace(/\[official audio\]/gi, '')
-    .replace(/\(official audio\)/gi, '')
-    .replace(/\[lyrics\]/gi, '')
-    .replace(/\(hd\)/gi, '')
-    .replace(/\(4k\)/gi, '')
-    .replace(/\(8k\)/gi, '')
-    .replace(/video song/gi, '')
-    .replace(/audio song/gi, '')
-    .replace(/lyrical song/gi, '')
-    .replace(/lyrical/gi, '')
-    .replace(/full song/gi, '')
-    .replace(/full video/gi, '')
-    .replace(/lyric video/gi, '')
-    .replace(/official video/gi, '')
-    .replace(/music video/gi, '')
-    .replace(/\|/g, ' ') // Replace pipe with space instead of stripping everything after it
-    .replace(/-/g, ' ')  // Replace dash with space for better search tokens
-    .replace(/ft\./gi, ' ')
-    .replace(/feat\./gi, ' ')
-    .replace(/ - Topic$/gi, '')
-    .replace(/\[.*\]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-};
-
-export const parseLRC = (lrcText) => {
-  if (!lrcText) return [];
-  const lines = lrcText.split('\n');
-  const result = [];
-  const timeRegex = /\[(\d+):(\d+\.?\d*)\]/g;
-  
-  lines.forEach(line => {
-    const timestamps = [...line.matchAll(timeRegex)];
-    if (timestamps.length > 0) {
-      const text = line.replace(timeRegex, '').trim();
-      if (text) {
-        timestamps.forEach(match => {
-          const minutes = parseInt(match[1]);
-          const seconds = parseFloat(match[2]);
-          result.push({ time: minutes * 60 + seconds, text });
-        });
-      }
-    }
-  });
-  
-  return result.sort((a, b) => a.time - b.time);
-};
-
 export const getHost = () => {
   const host = window.location.hostname;
   return host === 'localhost' ? 'localhost' : host;

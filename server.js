@@ -4,11 +4,51 @@ const cors = require('cors');
 const axios = require('axios');
 const ytSearch = require('yt-search');
 const youtubedl = require('youtube-dl-exec');
+const { spawn } = require('child_process');
+const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 5001;
 
 const log = (msg) => {
     console.log(`[${new Date().toISOString()}] ${msg}`);
+};
+
+const callYTMusic = (command, args = []) => {
+    return new Promise((resolve, reject) => {
+        const pythonProcess = spawn('python3', [path.join(__dirname, 'ytmusic.py'), command, ...args]);
+        let output = '';
+        let errorOutput = '';
+
+        pythonProcess.stdout.on('data', (data) => {
+            output += data.toString();
+        });
+
+        pythonProcess.stderr.on('data', (data) => {
+            errorOutput += data.toString();
+        });
+
+        pythonProcess.on('close', (code) => {
+            if (code !== 0) {
+                log(`[ytmusic.py Error] Code ${code}: ${errorOutput}`);
+                return reject(new Error(errorOutput || `Python process exited with code ${code}`));
+            }
+            try {
+                resolve(JSON.parse(output));
+            } catch (e) {
+                log(`[ytmusic.py Parse Error] ${e.message}. Output: ${output.substring(0, 100)}...`);
+                reject(e);
+            }
+        });
+    });
+};
+
+const parseDuration = (durStr) => {
+    if (!durStr) return 0;
+    if (typeof durStr === 'number') return durStr;
+    const parts = durStr.split(':').map(Number);
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    return parts[0] || 0;
 };
 
 app.use(cors());
@@ -29,7 +69,7 @@ const PIPED_INSTANCES = [
     "https://pipedapi.synced.cloud"
 ];
 
-// --- SEARCH ENDPOINT (Powered by LRCLIB + iTunes for Tracks) ---
+// --- SEARCH ENDPOINT (Powered by YTMusic API) ---
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
     const filter = req.query.filter; // music_songs or playlists
@@ -37,54 +77,37 @@ app.get('/api/search', async (req, res) => {
 
     try {
         if (filter === 'playlists') {
-            const results = await ytSearch(query + " playlist");
+            const results = await callYTMusic('search_playlists', [query]);
             return res.json({ 
-                items: results.playlists.slice(0, 15).map(v => ({ 
-                    title: v.title, uploaderName: v.author.name, thumbnail: v.thumbnail, url: v.url, id: v.listId, videoCount: v.videoCount 
+                items: results.map(v => ({ 
+                    title: v.title, 
+                    uploaderName: v.artists?.map(a => a.name).join(', ') || v.author || "Unknown", 
+                    thumbnail: `/api/proxy-image?url=${encodeURIComponent(v.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url)}`, 
+                    url: `https://www.youtube.com/playlist?list=${v.browseId || v.playlistId}`, 
+                    id: v.browseId || v.playlistId, 
+                    videoCount: v.trackCount || v.itemCount || 0 
                 }))
             });
         }
 
-        // Tracks Search via LRCLIB
-        const lrclibRes = await axios.get(`https://lrclib.net/api/search?q=${encodeURIComponent(query)}`, { timeout: 8000 });
-        let tracks = lrclibRes.data || [];
-        
-        if (tracks.length === 0) {
-            throw new Error("No LRCLIB results");
-        }
-
-        tracks = tracks.slice(0, 15);
-
-        // Fetch iTunes artwork concurrently
-        const items = await Promise.all(tracks.map(async (t) => {
-            let thumbnail = 'https://via.placeholder.com/500/111112/9D50FF?text=Music';
-            try {
-                const itunesRes = await axios.get(`https://itunes.apple.com/search?term=${encodeURIComponent(t.name + ' ' + t.artistName)}&entity=song&limit=1`, { timeout: 3000 });
-                if (itunesRes.data.results && itunesRes.data.results.length > 0) {
-                    thumbnail = itunesRes.data.results[0].artworkUrl100.replace('100x100bb.jpg', '500x500bb.jpg');
-                }
-            } catch (e) {
-                // Ignore iTunes failure, use placeholder
-            }
-
-            return {
-                id: t.id.toString(), // Use LRCLIB ID temporarily
-                title: t.name,
-                uploaderName: t.artistName,
-                albumName: t.albumName,
-                thumbnail: thumbnail,
-                duration: t.duration,
-                isLrclib: true,
-                syncedLyrics: t.syncedLyrics,
-                plainLyrics: t.plainLyrics
-            };
+        // Search Songs via YTMusic API
+        const results = await callYTMusic('search_songs', [query]);
+        const items = results.map(v => ({
+            id: v.videoId,
+            title: v.title,
+            uploaderName: v.artists?.map(a => a.name).join(', ') || "Unknown Artist",
+            albumName: v.album?.name || "",
+            thumbnail: `/api/proxy-image?url=${encodeURIComponent(v.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url)}`,
+            duration: v.duration_seconds || parseDuration(v.duration),
+            videoId: v.videoId,
+            isYTMusic: true
         }));
 
         return res.json({ items });
 
     } catch (err) {
-        log(`[LRCLIB Search Fallback] ${err.message}`);
-        // Fallback to YouTube if LRCLIB fails
+        log(`[YTMusic Search Fallback] ${err.message}`);
+        // Fallback to YouTube if YTMusic fails
         try {
             const results = await ytSearch(query);
             return res.json({ 
@@ -105,21 +128,25 @@ app.get('/api/resolve-youtube', async (req, res) => {
     if (!title || !artist) return res.status(400).json({ error: "Missing title or artist" });
 
     try {
-        const searchQuery = `${title} ${artist} audio`;
-        const results = await ytSearch(searchQuery);
-        
-        // Find the best match (prioritize music-like results)
-        const bestMatch = results.videos.find(v => {
-            const t = v.title.toLowerCase();
-            return v.seconds > 60 && v.seconds < 600 && !['vlog', 'reaction', 'review'].some(k => t.includes(k));
-        }) || results.videos[0];
+        const results = await callYTMusic('search_songs', [`${title} ${artist}`]);
+        const bestMatch = results[0];
 
-        if (!bestMatch) return res.status(404).json({ error: "No YouTube match found" });
+        if (!bestMatch) {
+            // Fallback to yt-search
+            const ytResults = await ytSearch(`${title} ${artist} audio`);
+            const fallbackMatch = ytResults.videos[0];
+            if (!fallbackMatch) return res.status(404).json({ error: "No YouTube match found" });
+            return res.json({
+                videoId: fallbackMatch.videoId,
+                url: fallbackMatch.url,
+                duration: fallbackMatch.seconds
+            });
+        }
 
         res.json({
             videoId: bestMatch.videoId,
-            url: bestMatch.url,
-            duration: bestMatch.seconds
+            url: `https://www.youtube.com/watch?v=${bestMatch.videoId}`,
+            duration: bestMatch.duration_seconds || parseDuration(bestMatch.duration)
         });
     } catch (err) {
         res.status(500).json({ error: "Resolution failed" });
@@ -167,9 +194,6 @@ app.get('/api/proxy-radio', async (req, res) => {
         res.status(500).send("Radio proxy failed");
     }
 });
-
-const { spawn } = require('child_process');
-const path = require('path');
 
 // Path to the yt-dlp binary provided by the package
 const YTDLP_PATH = path.join(__dirname, 'node_modules/youtube-dl-exec/bin/yt-dlp');
@@ -299,71 +323,96 @@ app.get('/api/download', (req, res) => {
 });
 
 // --- PLAYLIST ENDPOINT ---
-app.get('/api/playlist', (req, res) => {
+app.get('/api/playlist', async (req, res) => {
     const playlistId = req.query.id;
     if (!playlistId) return res.status(400).json({ error: "Missing Playlist ID or URL" });
 
     log(`[Playlist] Fetching metadata for: ${playlistId}`);
 
-    // If it's a full URL, use it directly, otherwise assume it's a YT ID
-    const url = playlistId.startsWith('http') ? playlistId : `https://www.youtube.com/playlist?list=${playlistId}`;
+    // Extract ID if full URL is provided
+    let id = playlistId;
+    if (playlistId.includes('list=')) {
+        id = playlistId.split('list=')[1].split('&')[0];
+    }
 
-    const args = [
-        url,
-        '--dump-single-json',
-        '--flat-playlist',
-        '--playlist-end', '50', // Limit to 50 tracks for performance
-        '--no-warnings',
-        '--force-ipv4',
-        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
-    ];
+    try {
+        const data = await callYTMusic('get_playlist', [id]);
+        const tracks = data.tracks.map(entry => {
+            return {
+                id: entry.videoId,
+                title: entry.title,
+                uploaderName: entry.artists?.map(a => a.name).join(', ') || "Unknown Artist",
+                thumbnail: `/api/proxy-image?url=${encodeURIComponent(entry.thumbnails?.sort((a, b) => b.width - a.width)[0]?.url || "")}`,
+                duration: entry.duration_seconds || parseDuration(entry.duration),
+                url: `https://www.youtube.com/watch?v=${entry.videoId}`,
+                isYTMusic: true
+            };
+        });
 
-    const ytDlpProcess = spawn(YTDLP_PATH, args);
-    let output = '';
-
-    ytDlpProcess.stdout.on('data', (data) => {
-        output += data.toString();
-    });
-
-    ytDlpProcess.stderr.on('data', (data) => {
-        const msg = data.toString();
-        if (msg.includes('ERROR')) log(`[Playlist Error] ${msg.trim()}`);
-    });
-
-    ytDlpProcess.on('close', (code) => {
-        if (code !== 0) {
-            return res.status(500).json({ error: "Failed to fetch playlist" });
-        }
+        return res.json({
+            title: data.title,
+            uploader: data.author?.name || data.author || "Unknown",
+            itemCount: data.trackCount || tracks.length,
+            thumbnail: `/api/proxy-image?url=${encodeURIComponent(data.thumbnails?.sort((a, b) => b.width - a.width)[0]?.url || "")}`,
+            items: tracks
+        });
+    } catch (e) {
+        log(`[Playlist YTMusic Error] ${e.message}. Falling back to yt-dlp...`);
+        
         try {
-            const data = JSON.parse(output);
-            const tracks = data.entries.map(entry => {
-                // Find highest res thumbnail for the track
-                const trackThumb = entry.thumbnails?.sort((a, b) => (b.width * b.height) - (a.width * a.height))[0]?.url || "";
-                
-                return {
-                    id: entry.id,
-                    title: entry.title,
-                    uploaderName: entry.uploader || entry.channel || "Unknown Artist",
-                    thumbnail: `/api/proxy-image?url=${encodeURIComponent(trackThumb)}`,
-                    duration: entry.duration || 0,
-                    url: `https://www.youtube.com/watch?v=${entry.id}`
-                };
+            const url = `https://www.youtube.com/playlist?list=${id}`;
+            const args = [
+                url,
+                '--dump-single-json',
+                '--flat-playlist',
+                '--playlist-end', '50',
+                '--no-warnings',
+                '--force-ipv4',
+                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+            ];
+
+            const ytDlpProcess = spawn(YTDLP_PATH, args);
+            let output = '';
+
+            ytDlpProcess.stdout.on('data', (data) => {
+                output += data.toString();
             });
 
-            // Find highest res thumbnail for the playlist itself
-            const playlistThumb = data.thumbnails?.sort((a, b) => (b.width * b.height) - (a.width * a.height))[0]?.url || "";
+            ytDlpProcess.on('close', (code) => {
+                if (code !== 0) {
+                    return res.status(500).json({ error: "Failed to fetch playlist with both engines" });
+                }
+                try {
+                    const data = JSON.parse(output);
+                    const tracks = data.entries.map(entry => {
+                        const trackThumb = entry.thumbnails?.sort((a, b) => (b.width * b.height) - (a.width * a.height))[0]?.url || "";
+                        return {
+                            id: entry.id,
+                            title: entry.title,
+                            uploaderName: entry.uploader || entry.channel || "Unknown Artist",
+                            thumbnail: `/api/proxy-image?url=${encodeURIComponent(trackThumb)}`,
+                            duration: entry.duration || 0,
+                            url: `https://www.youtube.com/watch?v=${entry.id}`
+                        };
+                    });
 
-            res.json({
-                title: data.title,
-                uploader: data.uploader,
-                itemCount: data.playlist_count || tracks.length,
-                thumbnail: playlistThumb ? `/api/proxy-image?url=${encodeURIComponent(playlistThumb)}` : null,
-                items: tracks
+                    const playlistThumb = data.thumbnails?.sort((a, b) => (b.width * b.height) - (a.width * a.height))[0]?.url || "";
+
+                    res.json({
+                        title: data.title,
+                        uploader: data.uploader,
+                        itemCount: data.playlist_count || tracks.length,
+                        thumbnail: playlistThumb ? `/api/proxy-image?url=${encodeURIComponent(playlistThumb)}` : null,
+                        items: tracks
+                    });
+                } catch (err) {
+                    res.status(500).json({ error: "Failed to parse playlist data from fallback" });
+                }
             });
-        } catch (e) {
-            res.status(500).json({ error: "Failed to parse playlist data" });
+        } catch (fallbackErr) {
+            res.status(500).json({ error: "Playlist fallback failed" });
         }
-    });
+    }
 });
 
 // --- TRENDING PLAYLISTS ENDPOINT ---
@@ -372,14 +421,14 @@ app.get('/api/trending-playlists', async (req, res) => {
         const customQuery = req.query.q;
         
         if (customQuery) {
-            const results = await ytSearch(customQuery + " Official YouTube Music Playlist");
-            return res.json(results.playlists.slice(0, 15).map(p => ({
-                id: p.listId,
+            const results = await callYTMusic('search_playlists', [customQuery]);
+            return res.json(results.map(p => ({
+                id: p.browseId || p.playlistId,
                 title: p.title,
-                thumbnail: `/api/proxy-image?url=${encodeURIComponent(p.thumbnail || p.image)}`,
-                uploaderName: p.author.name,
-                videoCount: p.videoCount,
-                url: p.url,
+                thumbnail: `/api/proxy-image?url=${encodeURIComponent(p.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url)}`,
+                uploaderName: p.artists?.map(a => a.name).join(', ') || p.author || "Unknown",
+                videoCount: p.trackCount || p.itemCount || 0,
+                url: `https://www.youtube.com/playlist?list=${p.browseId || p.playlistId}`,
                 engine: `http://localhost:${PORT}`
             })));
         }
@@ -398,14 +447,14 @@ app.get('/api/trending-playlists', async (req, res) => {
 
         await Promise.all(Object.entries(categories).map(async ([name, query]) => {
             try {
-                const r = await ytSearch(query);
-                result[name] = r.playlists.slice(0, 6).map(p => ({
-                    id: p.listId,
+                const r = await callYTMusic('search_playlists', [query]);
+                result[name] = r.slice(0, 6).map(p => ({
+                    id: p.browseId || p.playlistId,
                     title: p.title,
-                    thumbnail: `/api/proxy-image?url=${encodeURIComponent(p.thumbnail || p.image)}`,
-                    uploaderName: p.author.name,
-                    videoCount: p.videoCount,
-                    url: p.url,
+                    thumbnail: `/api/proxy-image?url=${encodeURIComponent(p.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url)}`,
+                    uploaderName: p.artists?.map(a => a.name).join(', ') || p.author || "Unknown",
+                    videoCount: p.trackCount || p.itemCount || 0,
+                    url: `https://www.youtube.com/playlist?list=${p.browseId || p.playlistId}`,
                     engine: `http://localhost:${PORT}`
                 }));
             } catch (e) { result[name] = []; }
@@ -421,19 +470,20 @@ app.get('/api/trending-playlists', async (req, res) => {
 // --- TRENDING TRACKS ENDPOINT ---
 app.get('/api/trending-tracks', async (req, res) => {
     try {
-        const query = 'top hits 2026 global official audio';
-        const results = await ytSearch(query);
-        const tracks = results.videos.slice(0, 12).map(v => ({
-            title: v.title,
-            uploaderName: v.author.name,
-            thumbnail: `/api/proxy-image?url=${encodeURIComponent(v.thumbnail)}`,
-            url: v.url,
+        const results = await callYTMusic('search_songs', ['top hits 2026 global official audio']);
+        const tracks = results.slice(0, 12).map(v => ({
             id: v.videoId,
-            duration: v.seconds,
+            title: v.title,
+            uploaderName: v.artists?.map(a => a.name).join(', ') || "Unknown Artist",
+            thumbnail: `/api/proxy-image?url=${encodeURIComponent(v.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url)}`,
+            url: `https://www.youtube.com/watch?v=${v.videoId}`,
+            duration: v.duration_seconds || parseDuration(v.duration),
+            isYTMusic: true,
             engine: `http://localhost:${PORT}`
         }));
         res.json(tracks);
     } catch (err) {
+        log(`[Trending Tracks Error] ${err.message}`);
         res.status(500).json({ error: "Failed to fetch trending tracks" });
     }
 });

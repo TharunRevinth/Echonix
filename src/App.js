@@ -10,8 +10,54 @@ import ViewRenderer from './components/ViewRenderer';
 
 // Utils
 import { 
-  getHost, ENGINES, formatTime, cleanString, parseLRC 
+  getHost, ENGINES, formatTime
 } from './utils';
+
+const cleanString = (str) => {
+  if (!str) return "";
+  return str
+    .replace(/\(feat\..*?\)/gi, '')
+    .replace(/\[feat\..*?\]/gi, '')
+    .replace(/\(with.*?\)/gi, '')
+    .replace(/\[with.*?\]/gi, '')
+    .replace(/\(official.*?\)/gi, '')
+    .replace(/\[official.*?\]/gi, '')
+    .replace(/\(video.*?\)/gi, '')
+    .replace(/\[video.*?\]/gi, '')
+    .replace(/\(audio.*?\)/gi, '')
+    .replace(/\[audio.*?\]/gi, '')
+    .replace(/\(lyrics.*?\)/gi, '')
+    .replace(/\[lyrics.*?\]/gi, '')
+    .replace(/\(remix.*?\)/gi, '')
+    .replace(/\[remix.*?\]/gi, '')
+    .replace(/\(lofi.*?\)/gi, '')
+    .replace(/\[lofi.*?\]/gi, '')
+    .replace(/\(prod\..*?\)/gi, '')
+    .replace(/\[prod\..*?\]/gi, '')
+    .replace(/- Topic$/gi, '')
+    .replace(/ft\..*? /gi, '')
+    .replace(/feat\..*? /gi, '')
+    .trim();
+};
+
+const parseLRC = (lrc) => {
+  if (!lrc) return [];
+  const lines = lrc.split('\n');
+  const result = [];
+  const timeRegex = /\[(\d+):(\d+\.\d+)\]/;
+
+  lines.forEach(line => {
+    const match = timeRegex.exec(line);
+    if (match) {
+      const minutes = parseInt(match[1]);
+      const seconds = parseFloat(match[2]);
+      const time = minutes * 60 + seconds;
+      const text = line.replace(timeRegex, '').trim();
+      if (text) result.push({ time, text });
+    }
+  });
+  return result;
+};
 
 function App() {
   // --- STATE ---
@@ -100,8 +146,9 @@ function App() {
         if (lineElements[activeIndex]) {
           const targetElement = lineElements[activeIndex];
           const containerHeight = lyricsRef.current.clientHeight;
+          // Precisely center the middle of the line in the middle of the container
           lyricsRef.current.scrollTo({
-            top: targetElement.offsetTop - (containerHeight / 3),
+            top: targetElement.offsetTop - (containerHeight / 2) + (targetElement.clientHeight / 2),
             behavior: 'smooth'
           });
         }
@@ -358,24 +405,34 @@ function App() {
     const cleanA = cleanString(track.uploaderName || track.artistName);
     setLyrics([{ time: 0, text: "Searching lyrics..." }]);
     
-    // 2. Try LRCLIB for Synced Lyrics
-    try {
-      // Step A: Specific lookup
-      const res = await axios.get(`https://lrclib.net/api/get?artist_name=${encodeURIComponent(cleanA)}&track_name=${encodeURIComponent(cleanT)}`, {
-        signal: lyricsAbortController.current.signal
-      });
-      if (res.data.syncedLyrics) {
-        setLyrics(parseLRC(res.data.syncedLyrics));
-        if (res.data.duration && track.ytDuration) {
-            const diff = Math.floor(track.ytDuration - res.data.duration);
-            if (diff > 2) setLyricsOffset(diff);
+    const tryFetch = async (artist, title) => {
+      try {
+        const res = await axios.get(`https://lrclib.net/api/get?artist_name=${encodeURIComponent(artist)}&track_name=${encodeURIComponent(title)}`, {
+          signal: lyricsAbortController.current.signal
+        });
+        if (res.data.syncedLyrics) {
+          setLyrics(parseLRC(res.data.syncedLyrics));
+          if (res.data.duration && track.ytDuration) {
+              const diff = Math.floor(track.ytDuration - res.data.duration);
+              if (diff > 2) setLyricsOffset(diff);
+          }
+          return true;
         }
-        return;
-      }
-    } catch (e) {}
+      } catch (e) {}
+      return false;
+    };
 
+    // Attempt 1: Standard clean
+    if (await tryFetch(cleanA, cleanT)) return;
+
+    // Attempt 2: More aggressive title cleaning (remove everything after " - ")
+    const superCleanT = cleanT.split(' - ')[0].trim();
+    if (superCleanT !== cleanT) {
+      if (await tryFetch(cleanA, superCleanT)) return;
+    }
+
+    // Attempt 3: Search fallback
     try {
-      // Step B: Broader search
       const searchRes = await axios.get(`https://lrclib.net/api/search?q=${encodeURIComponent(cleanT + " " + cleanA)}`, {
         signal: lyricsAbortController.current.signal
       });

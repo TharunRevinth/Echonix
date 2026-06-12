@@ -145,3 +145,8 @@ input[type="range"].progress-slider::-webkit-slider-thumb {
 .shadow-glow-purple {
   box-shadow: 0 0 30px rgba(157, 80, 255, 0.4);
 }
+
+.mask-fade-edges {
+  mask-image: linear-gradient(to bottom, transparent 0%, black 30%, black 70%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 30%, black 70%, transparent 100%);
+}
