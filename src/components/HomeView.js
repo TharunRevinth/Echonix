@@ -1,7 +1,11 @@
 import React from 'react';
 import { Play, MoreVertical, Heart, Flame, Trophy, Star } from 'lucide-react';
 
-const HomeView = ({ recentlyPlayed, trendingTracks, playTrack, getImageUrl, formatTime, toggleLike, likedSongs, handleSearch, setQuery, trendingPlaylists, fetchPlaylist }) => {
+const HomeView = ({ 
+  recentlyPlayed, trendingTracks, playTrack, getImageUrl, formatTime, toggleLike, likedSongs, 
+  handleSearch, setQuery, trendingPlaylists, fetchPlaylist, 
+  ytmusicPlaylists, ytmusicHome, isYtmusicLoading 
+}) => {
   const featured = [
     { 
       title: 'BEST OF 2024', 
@@ -33,6 +37,37 @@ const HomeView = ({ recentlyPlayed, trendingTracks, playTrack, getImageUrl, form
 
   return (
     <div className="space-y-12 pb-24">
+      {/* Your Playlists (Primary Focus) */}
+      {ytmusicPlaylists && ytmusicPlaylists.length > 0 && (
+        <section>
+          <div className="flex items-center justify-between mb-8">
+            <h3 className="text-3xl font-black text-white tracking-tight">Your Playlists</h3>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
+            {ytmusicPlaylists.slice(0, 12).map((playlist) => (
+              <div 
+                key={playlist.playlistId} 
+                onClick={() => fetchPlaylist(playlist.playlistId)}
+                className="group cursor-pointer"
+              >
+                <div className="relative aspect-square rounded-[32px] overflow-hidden mb-4 border border-white/5 shadow-2xl">
+                  <img src={getImageUrl(playlist.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url || playlist)} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-300 backdrop-blur-[2px]">
+                    <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center shadow-2xl transform scale-75 group-hover:scale-100 transition-transform">
+                      <Play className="text-black fill-black w-6 h-6 ml-1" />
+                    </div>
+                  </div>
+                </div>
+                <h4 className="font-bold text-white text-sm line-clamp-1 group-hover:text-accent-purple transition-colors">{playlist.title}</h4>
+                <p className="text-[10px] text-text-secondary font-bold uppercase tracking-widest mt-1 opacity-60">
+                  {playlist.count || playlist.itemCount} Tracks
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Featured Grid */}
       <section>
         <h3 className="text-2xl font-black text-white mb-8 tracking-tight">Curated Collections</h3>
@@ -73,70 +108,43 @@ const HomeView = ({ recentlyPlayed, trendingTracks, playTrack, getImageUrl, form
         </div>
       </section>
 
-      {/* YouTube Music Trends by Region */}
-      {trendingPlaylists && !Array.isArray(trendingPlaylists) && Object.entries(trendingPlaylists).map(([region, playlists]) => (
-        <section key={region}>
+      {/* YouTube Music Home Feed */}
+      {ytmusicHome && ytmusicHome.length > 0 && ytmusicHome.map((section, idx) => (
+        <section key={idx}>
           <div className="flex items-center justify-between mb-8">
-            <h3 className="text-2xl font-black text-white tracking-tight">{region} Trends</h3>
-            <button 
-              onClick={() => onFeaturedClick(`top ${region.toLowerCase()} music 2026`)}
-              className="text-xs font-bold uppercase tracking-widest text-accent-purple hover:text-white transition-colors"
-            >
-              See all
-            </button>
+            <h3 className="text-2xl font-black text-white tracking-tight">{section.title}</h3>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
-            {playlists.map((playlist) => (
+            {section.contents?.map((item, i) => (
               <div 
-                key={playlist.id} 
-                onClick={() => fetchPlaylist(playlist.id)}
+                key={item.playlistId || item.videoId || i} 
+                onClick={() => item.playlistId ? fetchPlaylist(item.playlistId) : playTrack({
+                  id: item.videoId,
+                  title: item.title,
+                  uploaderName: item.artists?.map(a => a.name).join(', ') || 'Unknown',
+                  thumbnail: item.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url || '',
+                  duration: item.duration_seconds || 0,
+                  isYTMusic: true
+                })}
                 className="group cursor-pointer"
               >
-                <div className="relative aspect-square rounded-[28px] overflow-hidden mb-4 border border-white/5 shadow-2xl">
-                  <img src={getImageUrl(playlist)} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                <div className="relative aspect-square rounded-[28px] overflow-hidden mb-4 border border-white/5 shadow-2xl bg-white/[0.03]">
+                  <img src={getImageUrl(item.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url || item)} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-300 backdrop-blur-[2px]">
                     <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center shadow-2xl transform scale-75 group-hover:scale-100 transition-transform">
                       <Play className="text-black fill-black w-5 h-5 ml-1" />
                     </div>
                   </div>
                 </div>
-                <h4 className="font-bold text-white text-sm line-clamp-1 group-hover:text-accent-purple transition-colors">{playlist.title}</h4>
-                <p className="text-[10px] text-text-secondary font-bold uppercase tracking-widest mt-1 opacity-60">{playlist.videoCount} Tracks</p>
+                <h4 className="font-bold text-white text-sm line-clamp-1 group-hover:text-accent-purple transition-colors">{item.title}</h4>
+                <p className="text-[10px] text-text-secondary font-bold uppercase tracking-widest mt-1 opacity-60">
+                  {item.playlistId ? 'Playlist' : (item.artists?.map(a => a.name).join(', ') || 'Track')}
+                </p>
               </div>
             ))}
           </div>
         </section>
       ))}
-
-      {/* Legacy support for flat array if needed */}
-      {trendingPlaylists && Array.isArray(trendingPlaylists) && trendingPlaylists.length > 0 && (
-        <section>
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="text-2xl font-black text-white tracking-tight">YouTube Music Trends</h3>
-            <button className="text-xs font-bold uppercase tracking-widest text-accent-purple hover:text-white transition-colors">Browse all</button>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
-            {trendingPlaylists.map((playlist) => (
-              <div 
-                key={playlist.id} 
-                onClick={() => fetchPlaylist(playlist.id)}
-                className="group cursor-pointer"
-              >
-                <div className="relative aspect-square rounded-[32px] overflow-hidden mb-4 border border-white/5 shadow-2xl">
-                  <img src={getImageUrl(playlist)} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-300 backdrop-blur-[2px]">
-                    <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center shadow-2xl transform scale-75 group-hover:scale-100 transition-transform">
-                      <Play className="text-black fill-black w-5 h-5 ml-1" />
-                    </div>
-                  </div>
-                </div>
-                <h4 className="font-bold text-white text-sm line-clamp-1 group-hover:text-accent-purple transition-colors">{playlist.title}</h4>
-                <p className="text-[10px] text-text-secondary font-bold uppercase tracking-widest mt-1">{playlist.videoCount} Tracks • {playlist.author}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
 
       {/* Trending Section */}
       <section>

@@ -7,7 +7,7 @@ const youtubedl = require('youtube-dl-exec');
 const { spawn } = require('child_process');
 const path = require('path');
 const app = express();
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.SERVER_PORT || 5001;
 
 const log = (msg) => {
     console.log(`[${new Date().toISOString()}] ${msg}`);
@@ -493,8 +493,8 @@ app.post('/api/ai-chat', async (req, res) => {
     const { model, messages, max_tokens } = req.body;
     
     // Fallback if not configured in backend environment
-    const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || process.env.REACT_APP_OPENROUTER_KEY;
-    
+    const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY;
+
     if (!OPENROUTER_KEY) {
         return res.status(500).json({ error: "OpenRouter API Key not configured on server" });
     }
@@ -518,9 +518,46 @@ app.post('/api/ai-chat', async (req, res) => {
     }
 });
 
+// --- RATE LIMITING ---
+const rateLimit = require('express-rate-limit');
+const limiter = rateLimit({ windowMs: 60000, max: 60, message: { error: 'Too many requests' } });
+app.use('/api/', limiter);
+
+// --- YTMUSIC USER DATA ROUTES (proxied to Python service) ---
+const YTMUSIC_BASE = `http://127.0.0.1:${process.env.YTMUSIC_SERVICE_PORT || 5002}/ytmusic`;
+const INTERNAL_SECRET = process.env.INTERNAL_API_SECRET;
+
+app.get('/api/ytmusic/:path', async (req, res) => {
+    const path = req.params.path;
+    if (!path || path.includes('..')) {
+        return res.status(400).json({ error: 'Bad request' });
+    }
+    try {
+        const response = await axios.get(`${YTMUSIC_BASE}/${path}`, {
+            headers: { 'X-Internal-Token': INTERNAL_SECRET }
+        });
+        res.json(response.data);
+    } catch (err) {
+        res.status(500).json({ error: 'Service unavailable' });
+    }
+});
+
+app.get('/api/ytmusic/playlist/:pid', async (req, res) => {
+    const pid = req.params.pid;
+    try {
+        const response = await axios.get(`${YTMUSIC_BASE}/playlist/${pid}`, {
+            headers: { 'X-Internal-Token': INTERNAL_SECRET }
+        });
+        res.json(response.data);
+    } catch (err) {
+        res.status(500).json({ error: 'Service unavailable' });
+    }
+});
+
 // Spotify Auth removed
 
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '127.0.0.1', () => {
     log(`Echonix Pure-Proxy Server active on port ${PORT}`);
-    log(`Local Network: http://0.0.0.0:${PORT}`);
+    log(`Local Network: http://127.0.0.1:${PORT}`);
 });
+

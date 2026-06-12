@@ -97,6 +97,10 @@ function App() {
   const [recentlyPlayed, setRecentlyPlayed] = useState(() => JSON.parse(localStorage.getItem('recentlyPlayed') || '[]'));
   const [trendingPlaylists, setTrendingPlaylists] = useState([]);
   const [trendingTracks, setTrendingTracks] = useState([]);
+  const [ytmusicPlaylists, setYtmusicPlaylists] = useState([]);
+  const [ytmusicHistory, setYtmusicHistory] = useState([]);
+  const [ytmusicHome, setYtmusicHome] = useState([]);
+  const [isYtmusicLoading, setIsYtmusicLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
@@ -111,6 +115,7 @@ function App() {
       } catch (e) {}
     };
     loadTrending();
+    fetchYTMusicData();
   }, []);
 
   useEffect(() => { localStorage.setItem('likedSongs', JSON.stringify(likedSongs)); }, [likedSongs]);
@@ -159,6 +164,31 @@ function App() {
       }
     }
   }, [currentTime, lyrics, lyricsOffset]);
+
+  const fetchYTMusicData = async () => {
+    setIsYtmusicLoading(true);
+    try {
+      const [playlistsRes, historyRes, homeRes] = await Promise.all([
+        axios.get(`http://${getHost()}:5001/api/ytmusic/playlists`),
+        axios.get(`http://${getHost()}:5001/api/ytmusic/history`),
+        axios.get(`http://${getHost()}:5001/api/ytmusic/home`)
+      ]);
+      setYtmusicPlaylists(playlistsRes.data);
+      setYtmusicHistory(historyRes.data.slice(0, 20).map(t => ({
+        id: t.videoId,
+        title: t.title,
+        uploaderName: t.artists?.map(a => a.name).join(', ') || 'Unknown',
+        thumbnail: t.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url || '',
+        duration: t.duration_seconds || 0,
+        isYTMusic: true
+      })));
+      setYtmusicHome(homeRes.data);
+    } catch (e) {
+      console.warn('YTMusic data unavailable', e.message);
+    } finally {
+      setIsYtmusicLoading(false);
+    }
+  };
 
   // --- ENGINE LOGIC ---
   const fetchWithFallback = async (endpoint) => {
@@ -599,6 +629,10 @@ function App() {
             fetchPlaylist={fetchPlaylist}
             searchType={searchType}
             setSearchType={setSearchType}
+            ytmusicPlaylists={ytmusicPlaylists}
+            ytmusicHistory={ytmusicHistory}
+            ytmusicHome={ytmusicHome}
+            isYtmusicLoading={isYtmusicLoading}
           />
         </main>
       </div>

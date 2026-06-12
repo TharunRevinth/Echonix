@@ -26,3 +26,7 @@ package-lock.json
 *.njsproj
 *.sln
 *.sw?
+.env
+browser.json
+headers_auth.json
+oauth.json

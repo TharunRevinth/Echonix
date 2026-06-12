@@ -1,6 +1,6 @@
 import React from 'react';
 import HomeView from './HomeView';
-import { Search, Radio, Download, Plus, Play, Cpu, Mic2 } from 'lucide-react';
+import { Search, Radio, Download, Plus, Play, Cpu, Mic2, Heart, Music2, Clock } from 'lucide-react';
 
 const ViewRenderer = ({ 
   currentView, searchResults, handleSearch, query, setQuery, isAiMode, setIsAiMode, isAiLoading,
@@ -9,9 +9,81 @@ const ViewRenderer = ({
   setIsMixtapeView, isMixtapeView, queue, currentIndex, setQueue, setCurrentIndex,
   lyrics, currentTime, lyricsRef,
   playlistData, isPlaylistLoading, trendingPlaylists, trendingTracks, fetchPlaylist,
-  searchType, setSearchType
+  searchType, setSearchType,
+  ytmusicPlaylists, ytmusicHistory, ytmusicHome, isYtmusicLoading
 }) => {
   switch (currentView) {
+    case 'library':
+      return (
+        <section className="pb-24">
+          <div className="flex items-center justify-between mb-8">
+            <h3 className="text-2xl font-bold text-white">Your YouTube Music Library</h3>
+            <button 
+              onClick={() => setIsMixtapeView(true)}
+              className="px-6 py-2 rounded-full bg-accent-teal text-white font-bold text-sm shadow-[0_0_20px_rgba(20,184,166,0.3)] hover:scale-105 transition-all"
+            >
+              Generate Mixtape
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6 mb-12">
+            {/* Liked Songs Shortcut */}
+            <div onClick={() => playTrack(likedSongs[0], likedSongs)} className="group cursor-pointer">
+              <div className="relative aspect-square rounded-3xl overflow-hidden mb-3 border border-accent-purple/20 bg-gradient-to-br from-accent-purple to-accent-blue shadow-2xl flex items-center justify-center">
+                <Heart className="w-16 h-16 text-white fill-white" />
+                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all">
+                  <Play className="text-white fill-white w-12 h-12" />
+                </div>
+              </div>
+              <h4 className="font-bold text-white text-sm">Liked Songs</h4>
+              <p className="text-[10px] text-text-secondary font-bold uppercase tracking-widest mt-1">{likedSongs.length} Tracks</p>
+            </div>
+
+            {/* Playlists */}
+            {ytmusicPlaylists.map((p, i) => (
+              <div key={p.playlistId || i} onClick={() => fetchPlaylist(p.playlistId)} className="group cursor-pointer">
+                <div className="relative aspect-square rounded-3xl overflow-hidden mb-3 border border-white/5 shadow-2xl">
+                  <img src={getImageUrl(p.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url || p)} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-300">
+                    <Play className="text-white fill-white w-8 h-8" />
+                  </div>
+                </div>
+                <h4 className="font-bold text-white text-sm line-clamp-1 group-hover:text-accent-purple transition-colors">{p.title}</h4>
+                <p className="text-[10px] text-text-secondary font-bold uppercase tracking-widest mt-1">{p.count || p.itemCount || 0} Tracks</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      );
+
+    case 'ytmusic-history':
+      return (
+        <section className="pb-24">
+          <h3 className="text-2xl font-bold text-white mb-8">YouTube Music History</h3>
+          <div className="grid gap-2">
+            {ytmusicHistory.map((track, i) => (
+              <div key={track.id + i} onClick={() => playTrack(track, ytmusicHistory)} className="group flex items-center justify-between p-3 rounded-2xl hover:bg-glass-bg border border-transparent hover:border-glass-border transition-all cursor-pointer">
+                <div className="flex items-center gap-4">
+                  <div className="relative w-12 h-12 rounded-xl overflow-hidden">
+                    <img src={getImageUrl(track)} alt="" className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                      <Play className="text-white fill-white w-5 h-5 ml-0.5" />
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-white group-hover:text-accent-purple transition-colors line-clamp-1">{track.title}</h4>
+                    <p className="text-xs text-text-secondary">{track.uploaderName}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <button onClick={(e) => { e.stopPropagation(); handleDownload(track); }} className="p-2 text-text-secondary hover:text-white transition-colors"><Download className="w-4 h-4" /></button>
+                  <span className="text-xs font-mono text-text-secondary w-10 text-right">{formatTime(track.duration)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      );
     case 'playlist':
       return (
         <section className="pb-24">
@@ -70,7 +142,21 @@ const ViewRenderer = ({
       );
 
     case 'home':
-      return <HomeView recentlyPlayed={recentlyPlayed} trendingTracks={trendingTracks} playTrack={playTrack} getImageUrl={getImageUrl} formatTime={formatTime} toggleLike={toggleLike} likedSongs={likedSongs} handleSearch={handleSearch} setQuery={setQuery} trendingPlaylists={trendingPlaylists} fetchPlaylist={fetchPlaylist} />;
+      return <HomeView 
+        recentlyPlayed={recentlyPlayed} 
+        trendingTracks={trendingTracks} 
+        playTrack={playTrack} 
+        getImageUrl={getImageUrl} 
+        formatTime={formatTime} 
+        toggleLike={toggleLike} 
+        likedSongs={likedSongs} 
+        handleSearch={handleSearch} 
+        setQuery={setQuery} 
+        trendingPlaylists={trendingPlaylists} 
+        fetchPlaylist={fetchPlaylist} 
+        ytmusicPlaylists={ytmusicPlaylists}
+        ytmusicHome={ytmusicHome}
+      />;
     
     case 'search':
       return (

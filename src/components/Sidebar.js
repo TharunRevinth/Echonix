@@ -1,14 +1,16 @@
 import React from 'react';
-import { Home, Search, ListMusic, CassetteTape, Radio, Headphones, Music2 } from 'lucide-react';
+import { Home, Search, ListMusic, CassetteTape, Radio, Headphones, Music2, Library, Clock } from 'lucide-react';
 
 const Sidebar = ({ currentView, setCurrentView, isMobileOpen, setIsMobileOpen }) => {
   const navItems = [
     { icon: Home, label: 'Home', view: 'home' },
     { icon: Search, label: 'Discover', view: 'search' },
     { icon: ListMusic, label: 'Queue', view: 'queue' },
+    { icon: Library, label: 'My Library', view: 'library' },
     { icon: CassetteTape, label: 'Collection', view: 'liked' },
     { icon: Radio, label: 'Retro FM', view: 'radio' },
-    { icon: Headphones, label: 'Recently Played', view: 'history' },
+    { icon: Clock, label: 'YT History', view: 'ytmusic-history' },
+    { icon: Headphones, label: 'Local History', view: 'history' },
   ];
 
   return (
