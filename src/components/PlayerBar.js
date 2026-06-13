@@ -63,7 +63,7 @@ const PlayerBar = ({
             </button>
             <div className="text-center">
               <p className="text-[10px] font-black uppercase tracking-[0.4em] text-text-secondary/60">Now Playing</p>
-              <p className="text-sm font-bold text-white mt-1 line-clamp-1 max-w-[200px] md:max-w-md">{currentTrack.title}</p>
+              <p className="text-sm font-bold text-white mt-1 line-clamp-1 max-w-[200px] md:max-w-md">{currentTrack.title || currentTrack.name || 'Unknown Track'}</p>
             </div>
             <button className="p-3 rounded-full hover:bg-white/10 transition-colors">
               <Info className="w-6 h-6 text-white/40" />
@@ -81,8 +81,8 @@ const PlayerBar = ({
               <div className="mt-10 space-y-6">
                  <div className="flex items-center justify-between gap-6">
                     <div className="flex-1 overflow-hidden">
-                      <h2 className="text-3xl md:text-4xl font-black text-white tracking-tighter leading-tight truncate">{currentTrack.title}</h2>
-                      <p className="text-lg md:text-xl text-accent-purple font-bold mt-2 opacity-90 truncate">{currentTrack.uploaderName}</p>
+                      <h2 className="text-3xl md:text-4xl font-black text-white tracking-tighter leading-tight truncate">{currentTrack.title || currentTrack.name || 'Unknown Track'}</h2>
+                      <p className="text-lg md:text-xl text-accent-purple font-bold mt-2 opacity-90 truncate">{currentTrack.uploaderName || currentTrack.artist || currentTrack.byline || 'Unknown Artist'}</p>
                     </div>
                     <Heart 
                       onClick={() => toggleLike(currentTrack)}
@@ -145,12 +145,12 @@ const PlayerBar = ({
                     <p 
                       key={i} 
                       className={`
-                        text-xl md:text-3xl lg:text-4xl font-extrabold transition-all duration-300 origin-left leading-tight cursor-pointer py-2
+                        text-xl md:text-3xl lg:text-4xl font-extrabold transition-all duration-500 origin-left leading-tight cursor-pointer py-3
                         ${isActive 
-                          ? 'text-white opacity-100 blur-0' 
+                          ? 'text-white opacity-100 blur-0 scale-105 drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]' 
                           : isPassed
-                            ? 'text-white/20 opacity-30'
-                            : 'text-white/10 opacity-15 hover:opacity-40'
+                            ? 'text-white/40 opacity-50 blur-[1px] hover:opacity-80 hover:blur-0 transition-all'
+                            : 'text-white/20 opacity-30 blur-[2px] hover:opacity-80 hover:blur-0 transition-all'
                         }
                       `}
                       onClick={() => line.time !== -1 && handleSeek({ target: { value: line.time + lyricsOffset } })}
@@ -229,89 +229,104 @@ const PlayerBar = ({
       </div>
 
       {/* Mini Player Bar */}
-      <div className="fixed bottom-0 left-0 right-0 h-24 bg-bg-dark/95 backdrop-blur-3xl border-t border-glass-border px-6 flex items-center justify-between z-[60] shadow-[0_-20px_50px_rgba(0,0,0,0.5)]">
+      <div className="fixed bottom-0 left-0 right-0 h-28 bg-bg-dark/80 backdrop-blur-3xl border-t border-white/5 px-6 flex items-center justify-between z-[60] shadow-[0_-20px_80px_rgba(0,0,0,0.6)]">
+        {/* Ambient Bleed Background */}
+        <div className="absolute inset-0 opacity-10 pointer-events-none overflow-hidden">
+          <div 
+            className="absolute inset-0 blur-[100px] transform scale-150"
+            style={{ 
+              background: `radial-gradient(circle at 20% 50%, var(--accent-purple), transparent 70%)`
+            }} 
+          />
+        </div>
+
         {/* Track Info (Click to expand) */}
         <div 
           onClick={() => setIsPlayerExpanded(true)}
-          className="flex items-center gap-4 w-1/4 min-w-[200px] cursor-pointer group"
+          className="flex items-center gap-5 w-1/4 min-w-[240px] cursor-pointer group relative z-10"
         >
-          <div className="w-14 h-14 rounded-xl overflow-hidden border border-glass-border shadow-2xl group-hover:scale-105 transition-transform duration-300">
+          <div className="w-16 h-16 rounded-[20px] overflow-hidden border border-white/10 shadow-2xl group-hover:scale-105 transition-transform duration-500 relative">
             <img src={getImageUrl(currentTrack)} alt="" className="w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-accent-purple/20 opacity-0 group-hover:opacity-100 transition-opacity" />
           </div>
           <div className="flex-1 overflow-hidden">
-            <h4 className="text-sm font-bold text-white truncate group-hover:text-accent-purple transition-colors">{currentTrack.title}</h4>
-            <p className="text-xs text-text-secondary truncate">{currentTrack.uploaderName}</p>
+            <h4 className="text-sm font-black text-white truncate group-hover:text-accent-purple transition-colors tracking-tight">{currentTrack.title || currentTrack.name || 'Unknown Track'}</h4>
+            <p className="text-[10px] font-bold text-text-secondary truncate uppercase tracking-widest mt-1 opacity-60">{currentTrack.uploaderName || currentTrack.artist || currentTrack.byline || 'Unknown Artist'}</p>
           </div>
           <Heart 
             onClick={(e) => { e.stopPropagation(); toggleLike(currentTrack); }}
-            className={`w-5 h-5 cursor-pointer transition-all ${isLiked ? 'text-accent-purple fill-accent-purple' : 'text-text-secondary hover:text-white'}`} 
+            className={`w-5 h-5 cursor-pointer transition-all hover:scale-110 ${isLiked ? 'text-accent-purple fill-accent-purple' : 'text-text-secondary/40 hover:text-white'}`} 
           />
         </div>
 
         {/* Controls */}
-        <div className="flex flex-col items-center gap-2 flex-1 max-w-2xl px-10">
-          <div className="flex items-center gap-6">
+        <div className="flex flex-col items-center gap-3 flex-1 max-w-2xl px-12 relative z-10">
+          <div className="flex items-center gap-8">
             <button 
               onClick={() => setIsShuffle(!isShuffle)}
-              className={`transition-all ${isShuffle ? 'text-accent-purple scale-110' : 'text-text-secondary hover:text-white'}`}
+              className={`transition-all hover:scale-110 ${isShuffle ? 'text-accent-purple shadow-glow-purple' : 'text-text-secondary/40 hover:text-white'}`}
             >
               <Shuffle className="w-4 h-4" />
             </button>
-            <button onClick={handlePrev} className="text-text-secondary hover:text-white transition-colors"><SkipBack className="w-5 h-5 fill-current" /></button>
+            <button onClick={handlePrev} className="text-white/40 hover:text-white transition-all hover:scale-110 active:scale-90"><SkipBack className="w-6 h-6 fill-current" /></button>
             <button 
               onClick={() => setIsPlaying(!isPlaying)}
-              className="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-glow-white"
+              className="w-12 h-12 rounded-full bg-white text-black flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-glow-white"
             >
-              {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
+              {isPlaying ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current ml-1" />}
             </button>
-            <button onClick={handleNext} className="text-text-secondary hover:text-white transition-colors"><SkipForward className="w-5 h-5 fill-current" /></button>
+            <button onClick={handleNext} className="text-white/40 hover:text-white transition-all hover:scale-110 active:scale-90"><SkipForward className="w-6 h-6 fill-current" /></button>
             <button 
               onClick={toggleRepeat}
-              className={`relative transition-all ${repeatMode !== 'off' ? 'text-accent-purple scale-110' : 'text-text-secondary hover:text-white'}`}
+              className={`relative transition-all hover:scale-110 ${repeatMode !== 'off' ? 'text-accent-purple shadow-glow-purple' : 'text-text-secondary/40 hover:text-white'}`}
             >
               <Repeat className="w-4 h-4" />
-              {repeatMode === 'one' && <span className="absolute -top-1.5 -right-1.5 bg-accent-purple text-white text-[6px] font-black w-3 h-3 rounded-full flex items-center justify-center">1</span>}
+              {repeatMode === 'one' && <span className="absolute -top-2 -right-2 bg-accent-purple text-white text-[7px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center border border-bg-dark">1</span>}
             </button>
           </div>
           
-          <div className="w-full flex items-center gap-3">
-            <span className="text-[10px] font-bold text-text-secondary w-10 text-right opacity-60">{formatTime(currentTime)}</span>
-            <div className="flex-1 h-1 relative group cursor-pointer">
+          <div className="w-full flex items-center gap-4">
+            <span className="text-[10px] font-mono font-black text-text-secondary/40 w-12 text-right">{formatTime(currentTime)}</span>
+            <div className="flex-1 h-1.5 relative group cursor-pointer">
               <input 
                 type="range"
                 min="0"
                 max={duration || 0}
                 value={currentTime}
                 onChange={handleSeek}
-                className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
+                className="absolute inset-0 w-full h-full opacity-0 z-20 cursor-pointer"
               />
-              <div className="absolute inset-0 bg-white/5 rounded-full" />
+              <div className="absolute inset-0 bg-white/5 rounded-full overflow-hidden" />
               <div 
-                className={`absolute inset-y-0 left-0 rounded-full transition-colors ${repeatMode === 'one' ? 'bg-accent-teal' : 'bg-white group-hover:bg-accent-purple'}`} 
+                className={`absolute inset-y-0 left-0 rounded-full transition-all duration-150 ${repeatMode === 'one' ? 'bg-accent-teal shadow-[0_0_10px_rgba(0,240,255,0.5)]' : 'bg-accent-purple shadow-glow-purple'}`} 
                 style={{ width: `${(currentTime / (duration || 1)) * 100}%` }} 
               />
+              <div 
+                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-glow-white opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+                style={{ left: `${(currentTime / (duration || 1)) * 100}%`, transform: `translate(-50%, -50%)` }}
+              />
             </div>
-            <span className="text-[10px] font-bold text-text-secondary w-10 opacity-60">{formatTime(duration)}</span>
+            <span className="text-[10px] font-mono font-black text-text-secondary/40 w-12">{formatTime(duration)}</span>
           </div>
         </div>
 
         {/* Volume & Actions */}
-        <div className="flex items-center gap-6 w-1/4 justify-end">
-          <div className="hidden lg:flex items-center gap-4">
+        <div className="flex items-center gap-8 w-1/4 justify-end relative z-10">
+          <div className="hidden xl:flex items-center gap-5">
             <button 
               onClick={() => setIsPlayerExpanded(true)}
-              className={`p-2 rounded-lg hover:bg-white/10 transition-colors ${lyrics?.length > 0 ? 'text-accent-teal' : 'text-text-secondary'}`}
+              className={`p-2.5 rounded-xl hover:bg-white/5 transition-all hover:scale-110 ${lyrics?.length > 0 ? 'text-accent-teal' : 'text-text-secondary/40'}`}
             >
               <Mic2 className="w-5 h-5" />
             </button>
             <Download 
               onClick={() => handleDownload(currentTrack)}
-              className="w-5 h-5 text-text-secondary hover:text-white cursor-pointer transition-colors" 
+              className="w-5 h-5 text-text-secondary/40 hover:text-white cursor-pointer transition-all hover:scale-110" 
             />
           </div>
-          <div className="flex items-center gap-3 w-32 group">
-            <Volume2 className="w-5 h-5 text-text-secondary group-hover:text-white transition-colors" />
-            <div className="flex-1 h-1 relative cursor-pointer">
+          <div className="flex items-center gap-4 w-36 group">
+            <Volume2 className="w-5 h-5 text-text-secondary/40 group-hover:text-white transition-colors" />
+            <div className="flex-1 h-1.5 relative cursor-pointer">
               <input 
                 type="range"
                 min="0"
@@ -319,10 +334,10 @@ const PlayerBar = ({
                 step="0.01"
                 value={volume}
                 onChange={(e) => setVolume(parseFloat(e.target.value))}
-                className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
+                className="absolute inset-0 w-full h-full opacity-0 z-20 cursor-pointer"
               />
-              <div className="absolute inset-0 bg-white/10 rounded-full" />
-              <div className="absolute inset-y-0 left-0 bg-white rounded-full group-hover:bg-accent-purple transition-colors" style={{ width: `${volume * 100}%` }} />
+              <div className="absolute inset-0 bg-white/10 rounded-full overflow-hidden" />
+              <div className="absolute inset-y-0 left-0 bg-white/40 group-hover:bg-accent-purple rounded-full transition-all" style={{ width: `${volume * 100}%` }} />
             </div>
           </div>
         </div>

@@ -5,8 +5,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Orbitron:wght@400;700;900&display=swap');
 
 :root {
-  --bg-dark: #080809;
-  --bg-card: #111112;
+  --bg-dark: #0a0a0f;
+  --bg-sidebar: #13131a;
+  --bg-card: #111116;
   --accent-purple: #9D50FF;
   --accent-blue: #0085FF;
   --accent-teal: #00F0FF;
@@ -28,7 +29,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Deep Ambient Glows inspired by inspiration image */
+/* Dynamic Ambient Glow */
 .ambient-glow {
   position: fixed;
   width: 100vw;
@@ -38,10 +39,11 @@ body {
   z-index: -1;
   pointer-events: none;
   background: 
-    radial-gradient(circle at 5% 5%, rgba(157, 80, 255, 0.12) 0%, transparent 45%),
+    radial-gradient(circle at 5% 5%, var(--glow-color, rgba(157, 80, 255, 0.12)) 0%, transparent 45%),
     radial-gradient(circle at 95% 95%, rgba(0, 133, 255, 0.12) 0%, transparent 45%),
     radial-gradient(circle at 50% 50%, rgba(0, 240, 255, 0.04) 0%, transparent 60%),
     radial-gradient(circle at 10% 90%, rgba(255, 77, 77, 0.08) 0%, transparent 40%);
+  transition: background 1.5s ease;
 }
 
 .custom-scrollbar::-webkit-scrollbar {
@@ -89,12 +91,43 @@ body {
   opacity: 1;
 }
 
+/* Gradient Text */
+.gradient-text {
+  background: linear-gradient(to right, #fff, #9D50FF);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
 /* Glassmorphism */
 .glass {
-  background: rgba(10, 10, 11, 0.7);
+  background: rgba(10, 10, 15, 0.7);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   border-top: 1px solid var(--glass-border);
+}
+
+/* Sidebar Specific */
+.sidebar-item-active {
+  background: linear-gradient(90deg, rgba(157, 80, 255, 0.15) 0%, transparent 100%);
+  border-left: 3px solid var(--accent-purple);
+}
+
+/* Section Dividers */
+.section-accent {
+  position: relative;
+  padding-left: 1.5rem;
+}
+.section-accent::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 24px;
+  background: var(--accent-purple);
+  border-radius: 4px;
+  box-shadow: 0 0 10px var(--accent-purple);
 }
 
 /* Typography Enhancements */
@@ -147,6 +180,6 @@ input[type="range"].progress-slider::-webkit-slider-thumb {
 }
 
 .mask-fade-edges {
-  mask-image: linear-gradient(to bottom, transparent 0%, black 30%, black 70%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 30%, black 70%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
 }

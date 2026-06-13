@@ -73,6 +73,7 @@ function App() {
   const [volume, setVolume] = useState(0.7);
   const [isAiMode, setIsAiMode] = useState(false);
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [username, setUsername] = useState('Tharun');
   
   const [queue, setQueue] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
@@ -91,6 +92,7 @@ function App() {
   const lyricsRef = useRef(null);
   const lyricsAbortController = useRef(null);
   const lastActiveIndex = useRef(-1);
+  const lyricsCache = useRef({});
 
   const [likedSongs, setLikedSongs] = useState(() => JSON.parse(localStorage.getItem('likedSongs') || '[]'));
   const [localTapes, setLocalTapes] = useState(() => JSON.parse(localStorage.getItem('localTapes') || '[]'));
@@ -103,6 +105,26 @@ function App() {
   const [isYtmusicLoading, setIsYtmusicLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+
+  // --- KEYBOARD SHORTCUTS ---
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Don't trigger if user is typing in an input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        setIsPlaying(prev => !prev);
+      } else if (e.code === 'ArrowRight') {
+        if (audioRef.current) audioRef.current.currentTime += 5;
+      } else if (e.code === 'ArrowLeft') {
+        if (audioRef.current) audioRef.current.currentTime -= 5;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // --- PERSISTENCE ---
   useEffect(() => {
@@ -131,6 +153,36 @@ function App() {
     if (audioRef.current && currentTrack?.streamUrl) {
       if (isPlaying) audioRef.current.play().catch(e => console.error("Playback failed", e));
       else audioRef.current.pause();
+    }
+    
+    // Update document title
+    if (currentTrack) {
+      document.title = `${isPlaying ? '▶' : '⏸'} ${currentTrack.title || currentTrack.name} - Echonix`;
+    } else {
+      document.title = 'Echonix';
+    }
+    
+    // --- MEDIA SESSION API (OS Metadata Sync) ---
+    if ('mediaSession' in navigator && currentTrack) {
+      const artist = currentTrack.uploaderName || currentTrack.artist || currentTrack.byline || 'Unknown Artist';
+      const title = currentTrack.title || currentTrack.name || 'Unknown Track';
+      
+      navigator.mediaSession.metadata = new window.MediaMetadata({
+        title: title,
+        artist: artist,
+        album: 'Echonix',
+        artwork: [
+          { src: getImageUrl(currentTrack), sizes: '512x512', type: 'image/jpeg' }
+        ]
+      });
+
+      navigator.mediaSession.setActionHandler('play', () => setIsPlaying(true));
+      navigator.mediaSession.setActionHandler('pause', () => setIsPlaying(false));
+      navigator.mediaSession.setActionHandler('previoustrack', handlePrev);
+      navigator.mediaSession.setActionHandler('nexttrack', handleNext);
+      navigator.mediaSession.setActionHandler('seekto', (details) => {
+        if (audioRef.current) audioRef.current.currentTime = details.seekTime;
+      });
     }
   }, [isPlaying, currentTrack]);
 
@@ -165,29 +217,35 @@ function App() {
     }
   }, [currentTime, lyrics, lyricsOffset]);
 
-  const fetchYTMusicData = async () => {
+  const fetchYTMusicData = () => {
     setIsYtmusicLoading(true);
-    try {
-      const [playlistsRes, historyRes, homeRes] = await Promise.all([
-        axios.get(`http://${getHost()}:5001/api/ytmusic/playlists`),
-        axios.get(`http://${getHost()}:5001/api/ytmusic/history`),
-        axios.get(`http://${getHost()}:5001/api/ytmusic/home`)
-      ]);
-      setYtmusicPlaylists(playlistsRes.data);
-      setYtmusicHistory(historyRes.data.slice(0, 20).map(t => ({
-        id: t.videoId,
-        title: t.title,
-        uploaderName: t.artists?.map(a => a.name).join(', ') || 'Unknown',
+    let completed = 0;
+    const checkDone = () => {
+      completed++;
+      if (completed === 3) setIsYtmusicLoading(false);
+    };
+
+    axios.get(`http://${getHost()}:5001/api/ytmusic/home`)
+      .then(res => setYtmusicHome(res.data))
+      .catch(e => console.warn('Home err', e.message))
+      .finally(checkDone);
+
+    axios.get(`http://${getHost()}:5001/api/ytmusic/playlists`)
+      .then(res => setYtmusicPlaylists(res.data))
+      .catch(e => console.warn('Playlists err', e.message))
+      .finally(checkDone);
+
+    axios.get(`http://${getHost()}:5001/api/ytmusic/history`)
+      .then(res => setYtmusicHistory(res.data.slice(0, 20).map(t => ({
+        id: t.videoId || t.id,
+        title: t.title || t.name || 'Unknown Title',
+        uploaderName: (t.artists?.map(a => a.name).join(', ')) || t.artist || t.byline || 'Unknown Artist',
         thumbnail: t.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url || '',
         duration: t.duration_seconds || 0,
         isYTMusic: true
-      })));
-      setYtmusicHome(homeRes.data);
-    } catch (e) {
-      console.warn('YTMusic data unavailable', e.message);
-    } finally {
-      setIsYtmusicLoading(false);
-    }
+      }))))
+      .catch(e => console.warn('History err', e.message))
+      .finally(checkDone);
   };
 
   // --- ENGINE LOGIC ---
@@ -373,20 +431,30 @@ function App() {
       return;
     }
     try {
+      let isNavigatingInCurrentQueue = false;
+
       if (newQueue) {
         setQueue(newQueue);
         const index = newQueue.findIndex(t => t.id === track.id || t.url === track.url);
         setCurrentIndex(index !== -1 ? index : 0);
       } else if (queue.length > 0) {
         const index = queue.findIndex(t => t.id === track.id || t.url === track.url);
-        if (index !== -1) setCurrentIndex(index);
+        if (index !== -1) {
+          setCurrentIndex(index);
+          isNavigatingInCurrentQueue = true;
+        } else {
+          setQueue([track]);
+          setCurrentIndex(0);
+        }
+      } else {
+        setQueue([track]);
+        setCurrentIndex(0);
       }
 
       let videoId = track.id || track.url?.split('v=')[1];
       let ytDuration = track.duration;
 
       // --- LRCLIB RESOLUTION ---
-      // If it's a track from LRCLIB search, we need to find its YouTube counterpart
       if (track.isLrclib) {
         setLyrics([{ time: 0, text: "Resolving audio frequency..." }]);
         const resolveRes = await axios.get(`http://${getHost()}:5001/api/resolve-youtube?title=${encodeURIComponent(track.title)}&artist=${encodeURIComponent(track.uploaderName)}`);
@@ -408,84 +476,206 @@ function App() {
       // Use the updated track which might contain lyrics from search
       fetchLyrics(updatedTrack);
       setRecentlyPlayed(prev => [updatedTrack, ...prev.filter(t => t.id !== track.id)].slice(0, 50));
+
+      // Auto-queue radio recommendations ONLY if we aren't already navigating in a multi-item queue
+      if (!newQueue && !isNavigatingInCurrentQueue) {
+        try {
+          const vid = updatedTrack.videoId || updatedTrack.id;
+          const res = await axios.get(`http://${getHost()}:5001/api/ytmusic/radio/${vid}`);
+          if (res.data?.length > 0) {
+            // Keep current track at index 0, then add recommendations
+            const radioQueue = [updatedTrack, ...res.data.filter(t => t.id !== updatedTrack.videoId && t.id !== updatedTrack.id)];
+            setQueue(radioQueue);
+            setCurrentIndex(0);
+          }
+        } catch (e) {
+          console.warn('Radio recommendations unavailable', e.message);
+        }
+      }
     } catch (err) { alert("PLAYBACK ENGINE OFFLINE OR RESOLUTION FAILED"); }
   };
 
   const fetchLyrics = async (track) => {
     if (lyricsAbortController.current) lyricsAbortController.current.abort();
     lyricsAbortController.current = new AbortController();
-    
-    // 1. If we already have lyrics from LRCLIB search
+    const signal = lyricsAbortController.current.signal;
+
+    const cacheKey = `${track.videoId || track.id}`;
+    if (lyricsCache.current[cacheKey]) {
+      setLyrics(lyricsCache.current[cacheKey]);
+      return;
+    }
+
+    // 1. If we already have lyrics from previous search/data
     if (track.syncedLyrics) {
-      setLyrics(parseLRC(track.syncedLyrics));
+      const parsed = parseLRC(track.syncedLyrics);
+      setLyrics(parsed);
+      lyricsCache.current[cacheKey] = parsed;
       if (track.ytDuration && track.duration) {
-          const diff = Math.floor(track.ytDuration - track.duration);
-          if (diff > 2) setLyricsOffset(diff);
+        const diff = Math.floor(track.ytDuration - track.duration);
+        if (diff > 2) setLyricsOffset(diff);
       }
       return;
     } else if (track.plainLyrics) {
-      setLyrics(track.plainLyrics.split('\n').filter(l => l.trim()).map((l, i, arr) => ({
+      const parsed = track.plainLyrics.split('\n').filter(l => l.trim()).map((l, i, arr) => ({
         time: (i / arr.length) * (track.duration || track.ytDuration || 180),
         text: l.trim()
-      })));
+      }));
+      setLyrics(parsed);
+      lyricsCache.current[cacheKey] = parsed;
       return;
     }
 
-    const cleanT = cleanString(track.title);
-    const cleanA = cleanString(track.uploaderName || track.artistName);
     setLyrics([{ time: 0, text: "Searching lyrics..." }]);
-    
-    const tryFetch = async (artist, title) => {
+
+    // --- CLEAN HELPERS ---
+    const stripParens = (str) => str?.replace(/\(.*?\)/g, '').replace(/\[.*?\]/g, '').trim() || '';
+    const stripFeatures = (str) => str
+      ?.replace(/\(feat\..*?\)/gi, '')
+      .replace(/\[feat\..*?\]/gi, '')
+      .replace(/ft\..*$/gi, '')
+      .replace(/- Topic$/gi, '')
+      .trim() || '';
+
+    const rawTitle = track.title || '';
+    const rawArtist = track.uploaderName || track.artistName || '';
+    const albumName = track.albumName || '';
+
+    const titleVariants = [...new Set([
+      rawTitle,
+      stripFeatures(rawTitle),
+      stripParens(rawTitle),
+      rawTitle.split(' - ')[0].trim(),
+      rawTitle.split('(')[0].trim(),
+    ])].filter(Boolean);
+
+    const artistVariants = [...new Set([
+      rawArtist,
+      rawArtist.split(',')[0].trim(),
+      stripParens(rawArtist),
+      stripFeatures(rawArtist),
+    ])].filter(Boolean);
+
+    // --- ATTEMPT HELPER ---
+    const tryLrclib = async (artist, title) => {
       try {
-        const res = await axios.get(`https://lrclib.net/api/get?artist_name=${encodeURIComponent(artist)}&track_name=${encodeURIComponent(title)}`, {
-          signal: lyricsAbortController.current.signal
-        });
-        if (res.data.syncedLyrics) {
-          setLyrics(parseLRC(res.data.syncedLyrics));
+        const res = await axios.get(
+          `https://lrclib.net/api/get?artist_name=${encodeURIComponent(artist)}&track_name=${encodeURIComponent(title)}`,
+          { signal, timeout: 5000 }
+        );
+        if (res.data?.syncedLyrics) {
+          const parsed = parseLRC(res.data.syncedLyrics);
+          setLyrics(parsed);
+          lyricsCache.current[cacheKey] = parsed;
           if (res.data.duration && track.ytDuration) {
-              const diff = Math.floor(track.ytDuration - res.data.duration);
-              if (diff > 2) setLyricsOffset(diff);
+            const diff = Math.floor(track.ytDuration - res.data.duration);
+            if (diff > 2) setLyricsOffset(diff);
           }
           return true;
         }
-      } catch (e) {}
+        if (res.data?.plainLyrics) {
+          const parsed = res.data.plainLyrics.split('\n').filter(l => l.trim()).map((l, i, arr) => ({
+            time: (i / arr.length) * (res.data.duration || track.ytDuration || 180),
+            text: l.trim()
+          }));
+          setLyrics(parsed);
+          lyricsCache.current[cacheKey] = parsed;
+          return true;
+        }
+      } catch (e) {
+        if (e.name === 'AbortError' || axios.isCancel(e)) throw e;
+      }
       return false;
     };
 
-    // Attempt 1: Standard clean
-    if (await tryFetch(cleanA, cleanT)) return;
-
-    // Attempt 2: More aggressive title cleaning (remove everything after " - ")
-    const superCleanT = cleanT.split(' - ')[0].trim();
-    if (superCleanT !== cleanT) {
-      if (await tryFetch(cleanA, superCleanT)) return;
-    }
-
-    // Attempt 3: Search fallback
-    try {
-      const searchRes = await axios.get(`https://lrclib.net/api/search?q=${encodeURIComponent(cleanT + " " + cleanA)}`, {
-        signal: lyricsAbortController.current.signal
-      });
-      if (searchRes.data && searchRes.data.length > 0) {
-        const bestMatch = searchRes.data.find(l => l.syncedLyrics) || searchRes.data[0];
-        if (bestMatch.syncedLyrics) {
-          setLyrics(parseLRC(bestMatch.syncedLyrics));
-          if (bestMatch.duration && track.ytDuration) {
-              const diff = Math.floor(track.ytDuration - bestMatch.duration);
+    const tryLrclibSearch = async (query) => {
+      try {
+        const res = await axios.get(
+          `https://lrclib.net/api/search?q=${encodeURIComponent(query)}`,
+          { signal, timeout: 5000 }
+        );
+        if (res.data?.length > 0) {
+          const best = res.data.find(l => l.syncedLyrics) || res.data[0];
+          if (best?.syncedLyrics) {
+            const parsed = parseLRC(best.syncedLyrics);
+            setLyrics(parsed);
+            lyricsCache.current[cacheKey] = parsed;
+            if (best.duration && track.ytDuration) {
+              const diff = Math.floor(track.ytDuration - best.duration);
               if (diff > 2) setLyricsOffset(diff);
+            }
+            return true;
           }
-          return;
-        } else if (bestMatch.plainLyrics) {
-          setLyrics(bestMatch.plainLyrics.split('\n').filter(l => l.trim()).map((l, i, arr) => ({
-            time: (i / arr.length) * (bestMatch.duration || track.ytDuration || 180),
-            text: l.trim()
-          })));
-          return;
+          if (best?.plainLyrics) {
+            const parsed = best.plainLyrics.split('\n').filter(l => l.trim()).map((l, i, arr) => ({
+              time: (i / arr.length) * (best.duration || track.ytDuration || 180),
+              text: l.trim()
+            }));
+            setLyrics(parsed);
+            lyricsCache.current[cacheKey] = parsed;
+            return true;
+          }
+        }
+      } catch (e) {
+        if (e.name === 'AbortError' || axios.isCancel(e)) throw e;
+      }
+      return false;
+    };
+
+    try {
+      // PASS 1: Try all title + artist combinations
+      for (const title of titleVariants) {
+        for (const artist of artistVariants) {
+          if (await tryLrclib(artist, title)) return;
         }
       }
-    } catch (e) {}
 
-    setLyrics([{ time: 0, text: "Lyrics not found." }]);
+      // PASS 2: Try title only (no artist)
+      for (const title of titleVariants) {
+        if (await tryLrclib('', title)) return;
+      }
+
+      // PASS 3: Search with full title + first artist
+      const searchQueries = [
+        `${titleVariants[0]} ${artistVariants[0]}`,
+        `${titleVariants[2] || titleVariants[0]} ${artistVariants[0]}`,
+        titleVariants[0],
+        ...(albumName ? [`${titleVariants[2] || titleVariants[0]} ${albumName}`] : [])
+      ];
+
+      for (const q of searchQueries) {
+        if (await tryLrclibSearch(q)) return;
+      }
+
+      // PASS 4: Try Lyrics Ovh as backup
+      try {
+        const ovhRes = await axios.get(
+          `https://api.lyrics.ovh/v1/${encodeURIComponent(artistVariants[0])}/${encodeURIComponent(titleVariants[2] || titleVariants[0])}`,
+          { signal, timeout: 5000 }
+        );
+        if (ovhRes.data?.lyrics) {
+          const lines = ovhRes.data.lyrics.split('\n').filter(l => l.trim());
+          const parsed = lines.map((l, i, arr) => ({
+            time: (i / arr.length) * (track.ytDuration || 180),
+            text: l.trim()
+          }));
+          setLyrics(parsed);
+          lyricsCache.current[cacheKey] = parsed;
+          return;
+        }
+      } catch (e) {
+        if (e.name === 'AbortError' || axios.isCancel(e)) throw e;
+      }
+
+      const notFound = [{ time: 0, text: "Lyrics not found." }];
+      setLyrics(notFound);
+      lyricsCache.current[cacheKey] = notFound;
+
+    } catch (e) {
+      if (e.name !== 'AbortError' && !axios.isCancel(e)) {
+        setLyrics([{ time: 0, text: "Lyrics unavailable." }]);
+      }
+    }
   };
 
   const handleNext = () => {
@@ -576,8 +766,9 @@ function App() {
   return (
     <div className="flex h-screen bg-bg-dark text-white overflow-hidden font-sans relative">
       <div className="ambient-glow" />
-      
-      <Sidebar 
+
+      <Sidebar
+ 
         currentView={currentView} 
         setCurrentView={setCurrentView} 
         isMobileOpen={isMobileOpen} 
@@ -633,6 +824,7 @@ function App() {
             ytmusicHistory={ytmusicHistory}
             ytmusicHome={ytmusicHome}
             isYtmusicLoading={isYtmusicLoading}
+            username={username}
           />
         </main>
       </div>

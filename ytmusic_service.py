@@ -64,6 +64,23 @@ def playlist(pid):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/ytmusic/radio/<video_id>')
+def get_radio(video_id):
+    verify()
+    try:
+        data = ytmusic.get_watch_playlist(videoId=video_id, limit=25)
+        tracks = [{
+            'id': t.get('videoId') or t.get('id'),
+            'title': t.get('title') or t.get('name') or 'Unknown Title',
+            'uploaderName': ', '.join(a['name'] for a in (t.get('artists') or [])) if t.get('artists') else (t.get('artist') or t.get('byline') or 'Unknown Artist'),
+            'thumbnail': (t.get('thumbnail') or t.get('thumbnails') or [{}])[-1].get('url', ''),
+            'duration': t.get('length', 0) or t.get('duration_seconds', 0),
+            'isYTMusic': True
+        } for t in data.get('tracks', []) if (t.get('videoId') or t.get('id'))]
+        return jsonify(tracks)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     port = int(os.getenv("YTMUSIC_SERVICE_PORT", 5002))
     app.run(host='127.0.0.1', port=port, debug=False)

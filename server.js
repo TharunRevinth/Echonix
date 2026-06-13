@@ -470,15 +470,35 @@ app.get('/api/trending-playlists', async (req, res) => {
 // --- TRENDING TRACKS ENDPOINT ---
 app.get('/api/trending-tracks', async (req, res) => {
     try {
-        const results = await callYTMusic('search_songs', ['top hits 2026 global official audio']);
-        const tracks = results.slice(0, 12).map(v => ({
-            id: v.videoId,
+        const query = 'top hits 2026 global official audio';
+        try {
+            const results = await callYTMusic('search_songs', [query]);
+            if (results && results.length > 0) {
+                const tracks = results.slice(0, 12).map(v => ({
+                    id: v.videoId,
+                    title: v.title,
+                    uploaderName: v.artists?.map(a => a.name).join(', ') || "Unknown Artist",
+                    thumbnail: `/api/proxy-image?url=${encodeURIComponent(v.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url)}`,
+                    url: `https://www.youtube.com/watch?v=${v.videoId}`,
+                    duration: v.duration_seconds || parseDuration(v.duration),
+                    isYTMusic: true,
+                    engine: `http://localhost:${PORT}`
+                }));
+                return res.json(tracks);
+            }
+        } catch (e) {
+            log(`[YTMusic Trending Fallback] ${e.message}`);
+        }
+
+        // Fallback to yt-search
+        const results = await ytSearch(query);
+        const tracks = results.videos.slice(0, 12).map(v => ({
             title: v.title,
-            uploaderName: v.artists?.map(a => a.name).join(', ') || "Unknown Artist",
-            thumbnail: `/api/proxy-image?url=${encodeURIComponent(v.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url)}`,
-            url: `https://www.youtube.com/watch?v=${v.videoId}`,
-            duration: v.duration_seconds || parseDuration(v.duration),
-            isYTMusic: true,
+            uploaderName: v.author.name,
+            thumbnail: `/api/proxy-image?url=${encodeURIComponent(v.thumbnail)}`,
+            url: v.url,
+            id: v.videoId,
+            duration: v.seconds,
             engine: `http://localhost:${PORT}`
         }));
         res.json(tracks);
@@ -546,6 +566,18 @@ app.get('/api/ytmusic/playlist/:pid', async (req, res) => {
     const pid = req.params.pid;
     try {
         const response = await axios.get(`${YTMUSIC_BASE}/playlist/${pid}`, {
+            headers: { 'X-Internal-Token': INTERNAL_SECRET }
+        });
+        res.json(response.data);
+    } catch (err) {
+        res.status(500).json({ error: 'Service unavailable' });
+    }
+});
+
+app.get('/api/ytmusic/radio/:vid', async (req, res) => {
+    const vid = req.params.vid;
+    try {
+        const response = await axios.get(`${YTMUSIC_BASE}/radio/${vid}`, {
             headers: { 'X-Internal-Token': INTERNAL_SECRET }
         });
         res.json(response.data);
