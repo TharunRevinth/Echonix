@@ -195,8 +195,17 @@ app.get('/api/proxy-radio', async (req, res) => {
     }
 });
 
-// Path to the yt-dlp binary provided by the package
-const YTDLP_PATH = path.join(__dirname, 'node_modules/youtube-dl-exec/bin/yt-dlp');
+// Path resolution for Electron
+const isElectron = process.env.IS_ELECTRON === 'true';
+const getResourcePath = (relativePath) => {
+    if (isElectron && !process.env.NODE_ENV.includes('dev')) {
+        // In packaged Electron app, resources are in resourcesPath
+        return path.join(process.resourcesPath, relativePath);
+    }
+    return path.join(__dirname, relativePath);
+};
+
+const YTDLP_PATH = getResourcePath('node_modules/youtube-dl-exec/bin/yt-dlp');
 
 // --- PURE PROXY STREAM ENDPOINT ---
 app.get('/api/stream', (req, res) => {
@@ -588,8 +597,8 @@ app.get('/api/ytmusic/radio/:vid', async (req, res) => {
 
 // Spotify Auth removed
 
-app.listen(PORT, '127.0.0.1', () => {
+app.listen(PORT, '0.0.0.0', () => {
     log(`Echonix Pure-Proxy Server active on port ${PORT}`);
-    log(`Local Network: http://127.0.0.1:${PORT}`);
+    log(`Network Access: http://${require('os').networkInterfaces()['eth0']?.[0].address || '0.0.0.0'}:${PORT}`);
 });
 

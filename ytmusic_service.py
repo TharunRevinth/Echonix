@@ -7,12 +7,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, origins=["http://127.0.0.1:5001", "http://localhost:5001"])
+CORS(app, origins="*") # Allow all for network visibility, internal verify() still protects routes
 
 # Use browser.json for persistent auth (playlists, liked, history)
-# Fallback to anonymous if not present
-if os.path.exists("browser.json"):
-    ytmusic = YTMusic("browser.json")
+# Priority: BROWSER_JSON_PATH env var (for Electron), then local browser.json
+browser_json = os.getenv("BROWSER_JSON_PATH", "browser.json")
+
+if os.path.exists(browser_json):
+    ytmusic = YTMusic(browser_json)
 else:
     ytmusic = YTMusic()
 
@@ -83,4 +85,4 @@ def get_radio(video_id):
 
 if __name__ == '__main__':
     port = int(os.getenv("YTMUSIC_SERVICE_PORT", 5002))
-    app.run(host='127.0.0.1', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=False)

@@ -59,6 +59,13 @@ const parseLRC = (lrc) => {
   return result;
 };
 
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+};
+
 function App() {
   // --- STATE ---
   const [activeEngine, setActiveEngine] = useState(`http://${getHost()}:5001/api`);
@@ -74,6 +81,8 @@ function App() {
   const [isAiMode, setIsAiMode] = useState(false);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [username, setUsername] = useState('Tharun');
+  
+  const greeting = getGreeting();
   
   const [queue, setQueue] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
@@ -93,6 +102,7 @@ function App() {
   const lyricsAbortController = useRef(null);
   const lastActiveIndex = useRef(-1);
   const lyricsCache = useRef({});
+  const isFetchingMore = useRef(false);
 
   const [likedSongs, setLikedSongs] = useState(() => JSON.parse(localStorage.getItem('likedSongs') || '[]'));
   const [localTapes, setLocalTapes] = useState(() => JSON.parse(localStorage.getItem('localTapes') || '[]'));
@@ -112,19 +122,39 @@ function App() {
       // Don't trigger if user is typing in an input
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-      if (e.code === 'Space') {
-        e.preventDefault();
-        setIsPlaying(prev => !prev);
-      } else if (e.code === 'ArrowRight') {
-        if (audioRef.current) audioRef.current.currentTime += 5;
-      } else if (e.code === 'ArrowLeft') {
-        if (audioRef.current) audioRef.current.currentTime -= 5;
+      switch(e.code) {
+        case 'Space':
+          e.preventDefault();
+          setIsPlaying(prev => !prev);
+          break;
+        case 'ArrowRight':
+          if (audioRef.current) audioRef.current.currentTime += 5;
+          break;
+        case 'ArrowLeft':
+          if (audioRef.current) audioRef.current.currentTime -= 5;
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          setVolume(v => Math.min(1, v + 0.1));
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          setVolume(v => Math.max(0, v - 0.1));
+          break;
+        case 'KeyL':
+          if (currentTrack) toggleLike(currentTrack);
+          break;
+        case 'KeyM':
+          setVolume(v => v === 0 ? 0.7 : 0);
+          break;
+        default:
+          break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [currentTrack]);
 
   // --- PERSISTENCE ---
   useEffect(() => {
@@ -144,16 +174,91 @@ function App() {
   useEffect(() => { localStorage.setItem('localTapes', JSON.stringify(localTapes)); }, [localTapes]);
   useEffect(() => { localStorage.setItem('recentlyPlayed', JSON.stringify(recentlyPlayed)); }, [recentlyPlayed]);
 
+  // --- SMART QUEUE (AUTO-REFILL) ---
+  useEffect(() => {
+    const songsLeft = queue.length - currentIndex - 1;
+    if (songsLeft <= 3 && currentTrack && !isFetchingMore.current) {
+      isFetchingMore.current = true;
+      const vid = currentTrack.videoId || currentTrack.id;
+      
+      axios.get(`http://${getHost()}:5001/api/ytmusic/radio/${vid}`)
+        .then(res => {
+          if (res.data?.length > 0) {
+            setQueue(prev => {
+              const existingIds = new Set(prev.map(t => t.videoId || t.id));
+              const newTracks = res.data.filter(t => !existingIds.has(t.videoId || t.id));
+              return [...prev, ...newTracks];
+            });
+          }
+        })
+        .catch(e => console.warn('Smart Queue refill failed', e.message))
+        .finally(() => { isFetchingMore.current = false; });
+    }
+  }, [currentIndex, queue.length, currentTrack]);
+
   // --- AUDIO EFFECTS ---
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume;
   }, [volume]);
+
+  // --- AMBIENT GLOW (COLOR EXTRACTION) ---
+  useEffect(() => {
+    if (!currentTrack) {
+      document.documentElement.style.setProperty('--glow-rgb', '157, 80, 255');
+      return;
+    }
+
+    const imgUrl = currentTrack.thumbnail || currentTrack.url;
+    if (!imgUrl) return;
+
+    // Use getImageUrl to resolve relative paths if any
+    const fullImgUrl = typeof imgUrl === 'string' && imgUrl.startsWith('http') 
+        ? imgUrl 
+        : ((currentTrack.engine || activeEngine).replace(/\/api$/, '') + imgUrl);
+
+    const img = new Image();
+    img.crossOrigin = "Anonymous";
+    img.src = fullImgUrl;
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        // Scale down for faster processing
+        canvas.width = 30;
+        canvas.height = 30;
+        ctx.drawImage(img, 0, 0, 30, 30);
+        
+        const data = ctx.getImageData(0, 0, 30, 30).data;
+        let r = 0, g = 0, b = 0, count = 0;
+        
+        for (let i = 0; i < data.length; i += 16) {
+          r += data[i];
+          g += data[i + 1];
+          b += data[i + 2];
+          count++;
+        }
+        
+        r = Math.floor(r / count);
+        g = Math.floor(g / count);
+        b = Math.floor(b / count);
+        
+        document.documentElement.style.setProperty('--glow-rgb', `${r}, ${g}, ${b}`);
+      } catch (e) {
+        console.warn("Color extraction failed (likely CORS). Using default glow.");
+        document.documentElement.style.setProperty('--glow-rgb', '157, 80, 255');
+      }
+    };
+    img.onerror = () => {
+        document.documentElement.style.setProperty('--glow-rgb', '157, 80, 255');
+    };
+  }, [currentTrack, activeEngine]);
 
   useEffect(() => {
     if (audioRef.current && currentTrack?.streamUrl) {
       if (isPlaying) audioRef.current.play().catch(e => console.error("Playback failed", e));
       else audioRef.current.pause();
     }
+
     
     // Update document title
     if (currentTrack) {
@@ -781,9 +886,11 @@ function App() {
           setQuery={setQuery} 
           handleSearch={handleSearch} 
           setIsMobileOpen={setIsMobileOpen} 
+          username={username}
+          greeting={greeting}
         />
 
-        <main className="flex-1 overflow-y-auto px-6 lg:px-10 custom-scrollbar">
+        <main className="flex-1 overflow-y-auto px-4 lg:px-10 custom-scrollbar pb-40 lg:pb-32">
           <ViewRenderer 
             currentView={currentView}
             searchResults={searchResults}
@@ -810,6 +917,7 @@ function App() {
             setIsMixtapeView={setIsMixtapeView}
             isMixtapeView={isMixtapeView}
             queue={queue}
+            currentIndex={currentIndex}
             lyrics={lyrics}
             currentTime={currentTime}
             lyricsRef={lyricsRef}
@@ -825,6 +933,8 @@ function App() {
             ytmusicHome={ytmusicHome}
             isYtmusicLoading={isYtmusicLoading}
             username={username}
+            greeting={greeting}
+            currentTrack={currentTrack}
           />
         </main>
       </div>

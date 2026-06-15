@@ -1,21 +1,65 @@
 {
   "name": "echonix",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Echonix Desktop - Fully self-contained music experience.",
+  "main": "electron.js",
   "scripts": {
     "postinstall": "node node_modules/youtube-dl-exec/scripts/postinstall.js",
     "start": "concurrently \"npm run server\" \"react-scripts start\"",
     "server": "node server.js",
     "dev": "concurrently \"node server.js\" \"react-scripts start\" \"python3 ytmusic_service.py\"",
+    "electron": "electron .",
+    "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
     "build": "react-scripts build",
+    "electron-build": "npm run build && electron-builder",
+    "dist": "electron-builder --linux --win",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "mobile-sync": "npm run build && npx cap sync",
+    "mobile-open": "npx cap open android"
+  },
+  "build": {
+    "appId": "com.tharun.echonix",
+    "productName": "Echonix",
+    "files": [
+      "build/**/*",
+      "server.js",
+      "ytmusic_service.py",
+      "ytmusic.py",
+      "node_modules/**/*",
+      "electron.js",
+      ".env",
+      "browser.json",
+      "utils.js"
+    ],
+    "extraFiles": [
+      {
+        "from": "node_modules/youtube-dl-exec/bin/yt-dlp",
+        "to": "resources/node_modules/youtube-dl-exec/bin/yt-dlp"
+      },
+      {
+        "from": "browser.json",
+        "to": "resources/browser.json"
+      }
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Music"
+    },
+    "win": {
+      "target": "nsis"
+    }
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@capacitor/android": "^8.4.0",
+    "@capacitor/cli": "^8.4.0",
+    "@capacitor/core": "^8.4.0",
     "@distube/ytdl-core": "^4.16.12",
     "axios": "^1.16.1",
     "cors": "^2.8.6",
@@ -45,7 +89,10 @@
     "@tailwindcss/postcss": "^4.3.0",
     "autoprefixer": "^10.4.17",
     "concurrently": "^9.2.1",
+    "electron": "^42.4.0",
+    "electron-builder": "^26.15.3",
     "postcss": "^8.4.35",
-    "tailwindcss": "^3.4.1"
+    "tailwindcss": "^3.4.1",
+    "wait-on": "^9.0.10"
   }
 }

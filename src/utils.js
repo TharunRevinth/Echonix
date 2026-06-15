@@ -24,9 +24,15 @@ export const formatTime = (t) => {
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
+// When running on Android, 'localhost' points to the device itself.
+// You must change 'YOUR_SERVER_IP' to your computer's IP address (e.g. 192.168.1.5)
+// to allow the mobile app to connect to your backend services.
+const SERVER_IP = 'localhost'; 
+
 export const getHost = () => {
   const host = window.location.hostname;
-  return host === 'localhost' ? 'localhost' : host;
+  if (host === 'localhost' || host === '127.0.0.1') return SERVER_IP;
+  return host;
 };
 
 export const ENGINES = [
