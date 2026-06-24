@@ -6,11 +6,50 @@ const ytSearch = require('yt-search');
 const youtubedl = require('youtube-dl-exec');
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
+const https = require('https');
 const app = express();
 const PORT = process.env.SERVER_PORT || 5001;
 
 const log = (msg) => {
     console.log(`[${new Date().toISOString()}] ${msg}`);
+};
+
+// --- PERSISTENT LYRICS CACHE SYSTEM ---
+const cacheDir = path.join(__dirname, '.lyrics_cache');
+if (!fs.existsSync(cacheDir)) {
+    fs.mkdirSync(cacheDir, { recursive: true });
+}
+
+const getCachePath = (prefix, params) => {
+    const key = Object.entries(params)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([k, v]) => `${k}_${encodeURIComponent(v || '')}`)
+        .join('__');
+    const safeKey = `${prefix}__${key}`.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 200);
+    return path.join(cacheDir, `${safeKey}.json`);
+};
+
+const readCache = (prefix, params) => {
+    try {
+        const file = getCachePath(prefix, params);
+        if (fs.existsSync(file)) {
+            const data = fs.readFileSync(file, 'utf8');
+            return JSON.parse(data);
+        }
+    } catch (e) {
+        log(`Cache read failed: ${e.message}`);
+    }
+    return null;
+};
+
+const writeCache = (prefix, params, data) => {
+    try {
+        const file = getCachePath(prefix, params);
+        fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+    } catch (e) {
+        log(`Cache write failed: ${e.message}`);
+    }
 };
 
 const callYTMusic = (command, args = []) => {
@@ -210,16 +249,19 @@ const YTDLP_PATH = getResourcePath('node_modules/youtube-dl-exec/bin/yt-dlp');
 // --- PURE PROXY STREAM ENDPOINT ---
 app.get('/api/stream', (req, res) => {
     const videoId = req.query.id;
+    const start = req.query.start ? parseFloat(req.query.start) : 0;
     if (!videoId) return res.status(400).send("Missing ID");
 
-    log(`[Proxy] Direct Pipe started for: ${videoId}`);
+    log(`[Proxy] Direct Pipe started for: ${videoId}${start > 0 ? ` at seek: ${start}s` : ''}`);
 
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-    // Arguments for yt-dlp to pipe best audio to stdout
+    // Arguments for yt-dlp to pipe best audio to stdout as mp3
     const args = [
         youtubeUrl,
-        '-f', 'bestaudio[ext=m4a]/bestaudio/best',
+        '-f', 'bestaudio',
+        '--extract-audio',
+        '--audio-format', 'mp3',
         '-o', '-',
         '--no-playlist',
         '--no-warnings',
@@ -229,12 +271,16 @@ app.get('/api/stream', (req, res) => {
         '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
     ];
 
+    if (start > 0) {
+        args.push('--download-sections', `*${start}-inf`);
+    }
+
     const ytDlpProcess = spawn(YTDLP_PATH, args);
 
     ytDlpProcess.stdout.on('data', (chunk) => {
         if (!res.headersSent) {
             res.writeHead(200, {
-                'Content-Type': 'audio/mp4',
+                'Content-Type': 'audio/mpeg',
                 'Access-Control-Allow-Origin': '*',
                 'Accept-Ranges': 'none',
                 'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -592,6 +638,141 @@ app.get('/api/ytmusic/radio/:vid', async (req, res) => {
         res.json(response.data);
     } catch (err) {
         res.status(500).json({ error: 'Service unavailable' });
+    }
+});
+
+// Recommendations endpoint
+app.post('/api/ytmusic/recommendations', limiter, async (req, res) => {
+    if (!req.body) return res.status(400).json({ error: 'No body' });
+    try {
+        const response = await axios.post(
+            `${YTMUSIC_BASE}/recommendations`,
+            req.body,
+            { headers: { 'X-Internal-Token': INTERNAL_SECRET } }
+        );
+        res.json(response.data);
+    } catch (err) {
+        res.status(500).json({ error: 'Recommendations unavailable' });
+    }
+});
+
+app.post('/api/ytmusic/taste-profile', limiter, async (req, res) => {
+    try {
+        const response = await axios.post(
+            `${YTMUSIC_BASE}/taste-profile`,
+            req.body,
+            { headers: { 'X-Internal-Token': INTERNAL_SECRET } }
+        );
+        res.json(response.data);
+    } catch (err) {
+        res.status(500).json({ error: 'Profile unavailable' });
+    }
+});
+
+// Proxy iTunes search for metadata lookup fallback
+app.get('/api/lyrics/itunes', async (req, res) => {
+  const { artist, title } = req.query;
+  try {
+    const cached = readCache('itunes', { artist, title });
+    if (cached) return res.json(cached);
+    
+    // Search iTunes for the track
+    const searchRes = await axios.get(
+      'https://itunes.apple.com/search',
+      {
+        params: {
+          term: `${title} ${artist || ''}`.trim(),
+          media: 'music',
+          entity: 'song',
+          limit: 5
+        },
+        timeout: 15000,
+        httpsAgent: new https.Agent({ rejectUnauthorized: false })
+      }
+    );
+
+    const results = searchRes.data?.results || [];
+    if (!results.length) {
+      const responseData = { notFound: true };
+      writeCache('itunes', { artist, title }, responseData);
+      return res.json(responseData);
+    }
+
+    // Return cleaned metadata
+    const tracks = results.map(r => ({
+      title: r.trackName,
+      artist: r.artistName,
+      album: r.collectionName,
+      duration: Math.round(r.trackTimeMillis / 1000),
+    }));
+
+    const responseData = { tracks };
+    writeCache('itunes', { artist, title }, responseData);
+    res.json(responseData);
+
+  } catch (err) {
+    log(`itunes error: ${err.message}`);
+    res.json({ notFound: true });
+  }
+});
+
+// Proxy lrclib to avoid CORS
+app.get('/api/lyrics/lrclib', async (req, res) => {
+    const { artist, title, q } = req.query;
+    try {
+        const cached = readCache('lrclib', { artist, title, q });
+        if (cached) return res.json(cached);
+
+        let url;
+        if (q) {
+            url = `https://lrclib.net/api/search?q=${encodeURIComponent(q)}`;
+        } else {
+            url = `https://lrclib.net/api/get?artist_name=${encodeURIComponent(artist)}&track_name=${encodeURIComponent(title)}`;
+        }
+        
+        const response = await axios.get(url, { 
+            timeout: 15000,
+            httpsAgent: new https.Agent({ rejectUnauthorized: false })
+        });
+        
+        writeCache('lrclib', { artist, title, q }, response.data);
+        res.json(response.data);
+    } catch (err) {
+        log(`lrclib error: ${err.message}`);
+        const fallback = { error: 'Lyrics not found' };
+        if (err.response && err.response.status === 404) {
+            writeCache('lrclib', { artist, title, q }, fallback);
+        }
+        res.status(404).json(fallback);
+    }
+});
+
+// Proxy lyrics.ovh to avoid CORS
+app.get('/api/lyrics/ovh', async (req, res) => {
+    const { artist, title } = req.query;
+    try {
+        if (!artist || !title) {
+            return res.status(400).json({ error: 'Missing artist or title' });
+        }
+        const cached = readCache('ovh', { artist, title });
+        if (cached) return res.json(cached);
+
+        const response = await axios.get(
+            `https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`,
+            { 
+                timeout: 15000,
+                httpsAgent: new https.Agent({ rejectUnauthorized: false })
+            }
+        );
+        writeCache('ovh', { artist, title }, response.data);
+        res.json(response.data);
+    } catch (err) {
+        log(`ovh error: ${err.message}`);
+        const fallback = { error: 'Lyrics not found' };
+        if (err.response && err.response.status === 404) {
+            writeCache('ovh', { artist, title }, fallback);
+        }
+        res.status(404).json(fallback);
     }
 });
 

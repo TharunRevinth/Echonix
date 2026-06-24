@@ -3,7 +3,7 @@ import HomeView from './HomeView';
 import { Search, Radio, Download, Plus, Play, Cpu, Mic2, Heart, Music2, Clock, Sparkles, ListMusic, MoreVertical } from 'lucide-react';
 
 const ViewRenderer = ({ 
-  currentView, searchResults, handleSearch, query, setQuery, isAiMode, setIsAiMode, isAiLoading,
+  currentView, setCurrentView, searchResults, handleSearch, query, setQuery, isAiMode, setIsAiMode, isAiLoading,
   playTrack, getImageUrl, formatTime, recentlyPlayed, likedSongs, toggleLike, handleDownload, addToQueue,
   radioStations, isRadioLoading, radioQuery, setRadioQuery, fetchRadioStations, playRadioStation,
   setIsMixtapeView, isMixtapeView, queue, currentIndex, setQueue, setCurrentIndex,
@@ -31,6 +31,7 @@ const ViewRenderer = ({
         isYtmusicLoading={isYtmusicLoading}
         username={username}
         greeting={greeting}
+        setCurrentView={setCurrentView}
       />;
 
     case 'library':

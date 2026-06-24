@@ -8,8 +8,17 @@ import {
 const HomeView = ({ 
   recentlyPlayed, trendingTracks, playTrack, getImageUrl, formatTime, toggleLike, likedSongs, 
   handleSearch, setQuery, trendingPlaylists, fetchPlaylist, 
-  ytmusicPlaylists, ytmusicHome, isYtmusicLoading, username = 'Tharun', greeting
+  ytmusicPlaylists, ytmusicHome, isYtmusicLoading, username = 'Tharun', greeting,
+  setCurrentView
 }) => {
+
+  const [expandedSections, setExpandedSections] = useState({});
+  const toggleSection = (idx) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [idx]: !prev[idx]
+    }));
+  };
 
   const moodChips = [
     { label: 'Trending', color: 'bg-orange-500/10 text-orange-400 border-orange-500/20' },
@@ -83,7 +92,7 @@ const HomeView = ({
             <h3 className="text-xl lg:text-2xl font-bold-700 text-white tracking-tight hover:underline cursor-pointer">
               Jump back in
             </h3>
-            <span className="text-[10px] font-bold text-text-subdued hover:underline cursor-pointer uppercase tracking-widest">Show all</span>
+            <span onClick={() => setCurrentView('history')} className="text-[10px] font-bold text-text-subdued hover:underline cursor-pointer uppercase tracking-widest">Show all</span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-4 lg:gap-6">
             {recentlyPlayed.slice(8, 14).map((track, i) => (
@@ -115,7 +124,7 @@ const HomeView = ({
             <h3 className="text-xl lg:text-2xl font-bold-700 text-white tracking-tight hover:underline cursor-pointer">
               {listenAgain.title}
             </h3>
-            <span className="text-[10px] font-bold text-text-subdued hover:underline cursor-pointer uppercase tracking-widest">Show all</span>
+            <span onClick={() => setCurrentView('ytmusic-history')} className="text-[10px] font-bold text-text-subdued hover:underline cursor-pointer uppercase tracking-widest">Show all</span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-4 lg:gap-6">
             {listenAgain.contents?.slice(0, 6).map((track, i) => (
@@ -154,7 +163,7 @@ const HomeView = ({
             <h3 className="text-xl lg:text-2xl font-bold-700 text-white tracking-tight hover:underline cursor-pointer">
               Made for you
             </h3>
-            <span className="text-[10px] font-bold text-text-subdued hover:underline cursor-pointer uppercase tracking-widest">Show all</span>
+            <span onClick={() => setCurrentView('library')} className="text-[10px] font-bold text-text-subdued hover:underline cursor-pointer uppercase tracking-widest">Show all</span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-4 lg:gap-6">
             {ytmusicPlaylists.slice(0, 6).map((playlist) => (
@@ -188,10 +197,12 @@ const HomeView = ({
             <h3 className="text-xl lg:text-2xl font-bold-700 text-white tracking-tight hover:underline cursor-pointer">
               {section.title}
             </h3>
-            <span className="text-[10px] font-bold text-text-subdued hover:underline cursor-pointer uppercase tracking-widest">Show all</span>
+            <span onClick={() => toggleSection(idx)} className="text-[10px] font-bold text-text-subdued hover:underline cursor-pointer uppercase tracking-widest">
+              {expandedSections[idx] ? 'Show less' : 'Show all'}
+            </span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-4 lg:gap-6">
-            {section.contents?.slice(0, 6).map((item, i) => {
+            {(expandedSections[idx] ? section.contents : section.contents?.slice(0, 6))?.map((item, i) => {
               if (!item) return null;
               return (
                 <div 

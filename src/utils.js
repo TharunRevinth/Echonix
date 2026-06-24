@@ -18,7 +18,7 @@ export const base64encode = (input) => {
 };
 
 export const formatTime = (t) => {
-  if (!t || isNaN(t)) return "0:00";
+  if (!t || isNaN(t) || !isFinite(t)) return "0:00";
   const m = Math.floor(t / 60);
   const s = Math.floor(t % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
