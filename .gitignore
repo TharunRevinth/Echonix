@@ -30,3 +30,4 @@ package-lock.json
 browser.json
 headers_auth.json
 oauth.json
+__pycache__

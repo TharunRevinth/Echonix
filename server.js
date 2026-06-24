@@ -135,6 +135,7 @@ app.get('/api/search', async (req, res) => {
             id: v.videoId,
             title: v.title,
             uploaderName: v.artists?.map(a => a.name).join(', ') || "Unknown Artist",
+            artists: v.artists?.map(a => ({ name: a.name, id: a.id || a.browseId })) || [],
             albumName: v.album?.name || "",
             thumbnail: `/api/proxy-image?url=${encodeURIComponent(v.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url)}`,
             duration: v.duration_seconds || parseDuration(v.duration),
@@ -397,6 +398,7 @@ app.get('/api/playlist', async (req, res) => {
                 id: entry.videoId,
                 title: entry.title,
                 uploaderName: entry.artists?.map(a => a.name).join(', ') || "Unknown Artist",
+                artists: entry.artists?.map(a => ({ name: a.name, id: a.id || a.browseId })) || [],
                 thumbnail: `/api/proxy-image?url=${encodeURIComponent(entry.thumbnails?.sort((a, b) => b.width - a.width)[0]?.url || "")}`,
                 duration: entry.duration_seconds || parseDuration(entry.duration),
                 url: `https://www.youtube.com/watch?v=${entry.videoId}`,
@@ -533,6 +535,7 @@ app.get('/api/trending-tracks', async (req, res) => {
                     id: v.videoId,
                     title: v.title,
                     uploaderName: v.artists?.map(a => a.name).join(', ') || "Unknown Artist",
+                    artists: v.artists?.map(a => ({ name: a.name, id: a.id || a.browseId })) || [],
                     thumbnail: `/api/proxy-image?url=${encodeURIComponent(v.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url)}`,
                     url: `https://www.youtube.com/watch?v=${v.videoId}`,
                     duration: v.duration_seconds || parseDuration(v.duration),
@@ -602,13 +605,23 @@ app.use('/api/', limiter);
 const YTMUSIC_BASE = `http://127.0.0.1:${process.env.YTMUSIC_SERVICE_PORT || 5002}/ytmusic`;
 const INTERNAL_SECRET = process.env.INTERNAL_API_SECRET;
 
-app.get('/api/ytmusic/:path', async (req, res) => {
-    const path = req.params.path;
-    if (!path || path.includes('..')) {
-        return res.status(400).json({ error: 'Bad request' });
-    }
+app.get('/api/ytmusic/artist-search', async (req, res) => {
+    const name = req.query.name;
     try {
-        const response = await axios.get(`${YTMUSIC_BASE}/${path}`, {
+        const response = await axios.get(`${YTMUSIC_BASE}/artist-search`, {
+            params: { name },
+            headers: { 'X-Internal-Token': INTERNAL_SECRET }
+        });
+        res.json(response.data);
+    } catch (err) {
+        res.status(500).json({ error: 'Service unavailable' });
+    }
+});
+
+app.get('/api/ytmusic/artist/:channelId', async (req, res) => {
+    const channelId = req.params.channelId;
+    try {
+        const response = await axios.get(`${YTMUSIC_BASE}/artist/${channelId}`, {
             headers: { 'X-Internal-Token': INTERNAL_SECRET }
         });
         res.json(response.data);
@@ -666,6 +679,21 @@ app.post('/api/ytmusic/taste-profile', limiter, async (req, res) => {
         res.json(response.data);
     } catch (err) {
         res.status(500).json({ error: 'Profile unavailable' });
+    }
+});
+
+app.get('/api/ytmusic/:path', async (req, res) => {
+    const path = req.params.path;
+    if (!path || path.includes('..')) {
+        return res.status(400).json({ error: 'Bad request' });
+    }
+    try {
+        const response = await axios.get(`${YTMUSIC_BASE}/${path}`, {
+            headers: { 'X-Internal-Token': INTERNAL_SECRET }
+        });
+        res.json(response.data);
+    } catch (err) {
+        res.status(500).json({ error: 'Service unavailable' });
     }
 });
 
@@ -727,6 +755,9 @@ app.get('/api/lyrics/lrclib', async (req, res) => {
         if (q) {
             url = `https://lrclib.net/api/search?q=${encodeURIComponent(q)}`;
         } else {
+            if (!artist || !title) {
+                return res.status(400).json({ error: 'Missing artist or title for exact lookup' });
+            }
             url = `https://lrclib.net/api/get?artist_name=${encodeURIComponent(artist)}&track_name=${encodeURIComponent(title)}`;
         }
         
@@ -740,10 +771,10 @@ app.get('/api/lyrics/lrclib', async (req, res) => {
     } catch (err) {
         log(`lrclib error: ${err.message}`);
         const fallback = { error: 'Lyrics not found' };
-        if (err.response && err.response.status === 404) {
+        if (err.response && (err.response.status === 404 || err.response.status === 400)) {
             writeCache('lrclib', { artist, title, q }, fallback);
         }
-        res.status(404).json(fallback);
+        res.status(err.response?.status || 404).json(fallback);
     }
 });
 

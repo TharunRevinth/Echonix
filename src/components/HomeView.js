@@ -4,12 +4,13 @@ import {
   Sparkles, Zap, History, TrendingUp, Music2, Headphones, Activity,
   Sun, Sunset, Moon
 } from 'lucide-react';
+import { renderArtists } from '../utils';
 
 const HomeView = ({ 
   recentlyPlayed, trendingTracks, playTrack, getImageUrl, formatTime, toggleLike, likedSongs, 
   handleSearch, setQuery, trendingPlaylists, fetchPlaylist, 
   ytmusicPlaylists, ytmusicHome, isYtmusicLoading, username = 'Tharun', greeting,
-  setCurrentView
+  setCurrentView, viewArtist
 }) => {
 
   const [expandedSections, setExpandedSections] = useState({});
@@ -110,7 +111,9 @@ const HomeView = ({
                   </div>
                 </div>
                 <h4 className="font-bold-700 text-white text-sm truncate mb-1">{track.title}</h4>
-                <p className="text-xs text-text-subdued font-semibold-600 line-clamp-2">{track.uploaderName}</p>
+                <p className="text-xs text-text-subdued font-semibold-600 line-clamp-2">
+                  {renderArtists(track, viewArtist)}
+                </p>
               </div>
             ))}
           </div>
@@ -134,6 +137,7 @@ const HomeView = ({
                   id: track.videoId,
                   title: track.title,
                   uploaderName: track.artists?.map(a => a.name).join(', ') || 'Unknown',
+                  artists: track.artists?.map(a => ({ name: a.name, id: a.id || a.browseId })) || [],
                   thumbnail: track.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url || '',
                   duration: track.duration_seconds || 0,
                   isYTMusic: true
@@ -149,7 +153,9 @@ const HomeView = ({
                   </div>
                 </div>
                 <h4 className="font-bold-700 text-white text-sm truncate mb-1">{track.title}</h4>
-                <p className="text-xs text-text-subdued font-semibold-600 line-clamp-2">{track.artists?.map(a => a.name).join(', ')}</p>
+                <p className="text-xs text-text-subdued font-semibold-600 line-clamp-2">
+                  {renderArtists(track, viewArtist)}
+                </p>
               </div>
             ))}
           </div>
@@ -207,14 +213,23 @@ const HomeView = ({
               return (
                 <div 
                   key={item.playlistId || item.videoId || i} 
-                  onClick={() => item.playlistId ? fetchPlaylist(item.playlistId) : playTrack({
-                    id: item.videoId,
-                    title: item.title,
-                    uploaderName: item.artists?.map(a => a.name).join(', ') || 'Unknown',
-                    thumbnail: item.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url || '',
-                    duration: item.duration_seconds || 0,
-                    isYTMusic: true
-                  })}
+                  onClick={() => {
+                    if (item.playlistId) {
+                      fetchPlaylist(item.playlistId);
+                    } else if (item.browseId) {
+                      viewArtist(item.title, item.browseId);
+                    } else if (item.videoId) {
+                      playTrack({
+                        id: item.videoId,
+                        title: item.title,
+                        uploaderName: item.artists?.map(a => a.name).join(', ') || 'Unknown',
+                        artists: item.artists?.map(a => ({ name: a.name, id: a.id || a.browseId })) || [],
+                        thumbnail: item.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url || '',
+                        duration: item.duration_seconds || 0,
+                        isYTMusic: true
+                      });
+                    }
+                  }}
                   className="spotify-card group cursor-pointer"
                 >
                   <div className="relative aspect-square overflow-hidden mb-4 rounded-md shadow-2xl">
@@ -227,7 +242,7 @@ const HomeView = ({
                   </div>
                   <h4 className="font-bold-700 text-white text-sm truncate mb-1">{item.title}</h4>
                   <p className="text-xs text-text-subdued font-semibold-600 line-clamp-2">
-                    {item.playlistId ? 'Playlist' : (item.artists?.map(a => a.name).join(', ') || 'Track')}
+                    {item.playlistId ? 'Playlist' : renderArtists(item, viewArtist)}
                   </p>
                 </div>
               );

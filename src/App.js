@@ -162,6 +162,8 @@ function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const [seekOffset, setSeekOffset] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [artistData, setArtistData] = useState(null);
+  const [isArtistLoading, setIsArtistLoading] = useState(false);
 
   // --- KEYBOARD SHORTCUTS ---
   useEffect(() => {
@@ -414,6 +416,7 @@ function App() {
         id: t.videoId || t.id,
         title: t.title || t.name || 'Unknown Title',
         uploaderName: (t.artists?.map(a => a.name).join(', ')) || t.artist || t.byline || 'Unknown Artist',
+        artists: t.artists?.map(a => ({ name: a.name, id: a.id || a.browseId })) || [],
         thumbnail: t.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url || '',
         duration: t.duration_seconds || 0,
         isYTMusic: true
@@ -506,6 +509,34 @@ function App() {
       alert("FAILED TO LOAD PLAYLIST. Ensure it is public.");
     } finally {
       setIsPlaylistLoading(false);
+    }
+  };
+
+  const viewArtist = async (artistName, artistId = null) => {
+    setIsArtistLoading(true);
+    setCurrentView('artist');
+    setArtistData(null);
+    try {
+      let resolvedId = artistId;
+      if (!resolvedId && artistName) {
+        const searchRes = await axios.get(`http://${getHost()}:5001/api/ytmusic/artist-search`, {
+          params: { name: artistName }
+        });
+        resolvedId = searchRes.data?.id;
+      }
+      if (!resolvedId) {
+        alert("Could not find artist page.");
+        setCurrentView('home');
+        return;
+      }
+      const res = await axios.get(`http://${getHost()}:5001/api/ytmusic/artist/${resolvedId}`);
+      setArtistData(res.data);
+    } catch (err) {
+      console.error("Failed to fetch artist profile:", err);
+      alert("FAILED TO LOAD ARTIST PROFILE.");
+      setCurrentView('home');
+    } finally {
+      setIsArtistLoading(false);
     }
   };
 
@@ -754,6 +785,7 @@ function App() {
     
     const tryLrclib = async (artist, title) => {
       if (isStale()) return false;
+      if (!artist || !title) return false;
       try {
         const res = await axios.get(`${API_BASE}/api/lyrics/lrclib`, {
           params: { artist, title },
@@ -1032,7 +1064,12 @@ function App() {
     if (!track) return "";
     const url = typeof track === 'string' ? track : track.thumbnail;
     if (!url) return "";
-    if (url.startsWith('http')) return url;
+    if (url.startsWith('http')) {
+      if (url.includes('googleusercontent.com')) {
+        return `http://${getHost()}:5001/api/proxy-image?url=${encodeURIComponent(url)}`;
+      }
+      return url;
+    }
     const base = (track.engine || activeEngine).replace(/\/api$/, '');
     return `${base}${url}`;
   };
@@ -1118,6 +1155,9 @@ function App() {
             username={username}
             greeting={greeting}
             currentTrack={currentTrack}
+            viewArtist={viewArtist}
+            artistData={artistData}
+            isArtistLoading={isArtistLoading}
           />
         </main>
       </div>
@@ -1173,6 +1213,7 @@ function App() {
         lyricsOffset={lyricsOffset}
         setLyricsOffset={setLyricsOffset}
         lyricsRef={lyricsRef}
+        viewArtist={viewArtist}
       />
 
       <audio 

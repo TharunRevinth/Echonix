@@ -3,13 +3,14 @@ import {
   Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Heart, 
   Repeat, Shuffle, ChevronDown, Mic2, Info, ListMusic, Share2, Download
 } from 'lucide-react';
+import { renderArtists } from '../utils';
 
 const PlayerBar = ({
   currentTrack, isPlaying, setIsPlaying, currentTime, duration,
   handleSeek, handleNext, handlePrev, volume, setVolume,
   formatTime, getImageUrl, toggleLike, likedSongs, handleDownload,
   isPlayerExpanded, setIsPlayerExpanded, lyrics, lyricsOffset, setLyricsOffset, lyricsRef,
-  isShuffle, setIsShuffle, repeatMode, setRepeatMode
+  isShuffle, setIsShuffle, repeatMode, setRepeatMode, viewArtist
 }) => {
   const [localSeekTime, setLocalSeekTime] = useState(null);
   const userScrollTimeout = useRef(null);
@@ -82,7 +83,10 @@ const PlayerBar = ({
                         className="text-lg font-semibold-600 mt-1 opacity-90 truncate transition-colors duration-1000"
                         style={{ color: `rgb(var(--glow-rgb))` }}
                       >
-                        {currentTrack.uploaderName}
+                        {renderArtists(currentTrack, (name, id) => {
+                          setIsPlayerExpanded(false);
+                          viewArtist(name, id);
+                        })}
                       </p>
                     </div>
                     <Heart 
@@ -232,8 +236,8 @@ const PlayerBar = ({
             <h4 onClick={() => setIsPlayerExpanded(true)} className="text-xs lg:text-sm font-semibold text-white truncate hover:underline cursor-pointer tracking-tight text-left">
               {currentTrack.title}
             </h4>
-            <p className="text-[10px] lg:text-xs text-text-subdued truncate hover:underline cursor-pointer text-left">
-              {currentTrack.uploaderName}
+            <p className="text-[10px] lg:text-xs text-text-subdued truncate text-left">
+              {renderArtists(currentTrack, viewArtist)}
             </p>
           </div>
           <Heart 

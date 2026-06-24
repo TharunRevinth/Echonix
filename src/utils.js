@@ -1,4 +1,45 @@
 import axios from 'axios';
+import React from 'react';
+
+export const renderArtists = (track, viewArtist) => {
+  if (!track) return null;
+  const artists = track.artists;
+  const defaultName = track.uploaderName || track.artist || 'Unknown Artist';
+  
+  if (artists && artists.length > 0) {
+    return artists.map((a, idx) => (
+      <React.Fragment key={a.id || idx}>
+        <span 
+          onClick={(e) => { 
+            e.stopPropagation(); 
+            viewArtist(a.name, a.id); 
+          }} 
+          className="hover:underline cursor-pointer hover:text-white"
+        >
+          {a.name}
+        </span>
+        {idx < artists.length - 1 && <span>, </span>}
+      </React.Fragment>
+    ));
+  }
+  
+  // Fallback: split string if it contains comma-separated values
+  const names = defaultName.split(', ');
+  return names.map((name, idx) => (
+    <React.Fragment key={idx}>
+      <span 
+        onClick={(e) => { 
+          e.stopPropagation(); 
+          viewArtist(name.trim()); 
+        }} 
+        className="hover:underline cursor-pointer hover:text-white"
+      >
+        {name.trim()}
+      </span>
+      {idx < names.length - 1 && <span>, </span>}
+    </React.Fragment>
+  ));
+};
 
 export const generateRandomString = (length) => {
   const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';

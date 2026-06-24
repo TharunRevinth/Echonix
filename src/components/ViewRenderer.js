@@ -1,6 +1,7 @@
 import React from 'react';
 import HomeView from './HomeView';
 import { Search, Radio, Download, Plus, Play, Cpu, Mic2, Heart, Music2, Clock, Sparkles, ListMusic, MoreVertical } from 'lucide-react';
+import { renderArtists } from '../utils';
 
 const ViewRenderer = ({ 
   currentView, setCurrentView, searchResults, handleSearch, query, setQuery, isAiMode, setIsAiMode, isAiLoading,
@@ -10,7 +11,8 @@ const ViewRenderer = ({
   lyrics, currentTime, lyricsRef,
   playlistData, isPlaylistLoading, trendingPlaylists, trendingTracks, fetchPlaylist,
   searchType, setSearchType,
-  ytmusicPlaylists, ytmusicHistory, ytmusicHome, isYtmusicLoading, username, greeting, currentTrack
+  ytmusicPlaylists, ytmusicHistory, ytmusicHome, isYtmusicLoading, username, greeting, currentTrack,
+  viewArtist, artistData, isArtistLoading
 }) => {
   switch (currentView) {
     case 'home':
@@ -32,6 +34,7 @@ const ViewRenderer = ({
         username={username}
         greeting={greeting}
         setCurrentView={setCurrentView}
+        viewArtist={viewArtist}
       />;
 
     case 'library':
@@ -87,7 +90,11 @@ const ViewRenderer = ({
           <h3 className="text-2xl font-bold-700 text-white mb-8">YouTube Music History</h3>
           <div className="flex flex-col">
             {ytmusicHistory.map((track, i) => {
-              const isActive = currentTrack && (currentTrack.id === track.id || currentTrack.url === track.url || currentTrack.videoId === track.videoId);
+              const isActive = currentTrack && (
+                (track.id && currentTrack.id === track.id) ||
+                (track.videoId && (currentTrack.videoId === track.videoId || currentTrack.id === track.videoId)) ||
+                (track.url && currentTrack.url === track.url)
+              );
               return (
                 <div key={track.id + i} onClick={() => playTrack(track, ytmusicHistory)} className="group flex items-center justify-between p-3 rounded-md hover:bg-white/10 transition-all cursor-pointer">
                   <div className="flex items-center gap-4 flex-1 overflow-hidden">
@@ -104,7 +111,9 @@ const ViewRenderer = ({
                     <img src={getImageUrl(track)} alt="" className="w-10 h-10 rounded shadow-lg" />
                     <div className="min-w-0 pr-4">
                       <h4 className={`font-semibold-600 text-sm truncate ${isActive ? 'text-accent-purple' : 'text-white'}`}>{track.title}</h4>
-                      <p className="text-xs text-text-subdued truncate">{track.uploaderName}</p>
+                      <p className="text-xs text-text-subdued truncate">
+                        {renderArtists(track, viewArtist)}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-6 text-text-subdued">
@@ -199,7 +208,9 @@ const ViewRenderer = ({
                         <div className="space-y-1">
                            <h4 className="text-white font-bold-700 text-2xl lg:text-3xl tracking-tight truncate">{topResult.title}</h4>
                            <div className="flex items-center gap-3">
-                             <p className="text-sm font-semibold-600 text-text-subdued">{topResult.uploaderName}</p>
+                             <p className="text-sm font-semibold-600 text-text-subdued">
+                               {renderArtists(topResult, viewArtist)}
+                             </p>
                              <span className="px-2 py-0.5 bg-black/40 text-white text-[10px] font-bold-700 rounded-full uppercase tracking-widest">Song</span>
                            </div>
                         </div>
@@ -217,7 +228,11 @@ const ViewRenderer = ({
                     <h3 className="text-2xl font-bold-700 text-white mb-4">Songs</h3>
                     <div className="flex flex-col space-y-0.5">
                       {otherResults.map((item, i) => {
-                        const isActive = currentTrack && (currentTrack.id === item.id || currentTrack.url === item.url);
+                        const isActive = currentTrack && (
+                          (item.id && currentTrack.id === item.id) ||
+                          (item.videoId && (currentTrack.videoId === item.videoId || currentTrack.id === item.videoId)) ||
+                          (item.url && currentTrack.url === item.url)
+                        );
                         return (
                           <div 
                             key={item.id + i} 
@@ -241,7 +256,9 @@ const ViewRenderer = ({
                             
                             <div className="flex-1 min-w-0 pr-4">
                               <h4 className={`font-semibold-600 text-sm truncate ${isActive ? 'text-accent-purple' : 'text-white'}`}>{item.title}</h4>
-                              <p className="text-xs text-text-subdued truncate font-medium">{item.uploaderName}</p>
+                              <p className="text-xs text-text-subdued truncate font-medium">
+                                {renderArtists(item, viewArtist)}
+                              </p>
                             </div>
                             
                             <div className="flex items-center gap-6 shrink-0">
@@ -337,7 +354,11 @@ const ViewRenderer = ({
           </div>
           <div className="flex flex-col">
             {likedSongs.map((track, i) => {
-              const isActive = currentTrack && (currentTrack.url === track.url || currentTrack.id === track.id || currentTrack.videoId === track.videoId);
+              const isActive = currentTrack && (
+                (track.id && currentTrack.id === track.id) ||
+                (track.videoId && (currentTrack.videoId === track.videoId || currentTrack.id === track.videoId)) ||
+                (track.url && currentTrack.url === track.url)
+              );
               return (
                 <div key={track.url} onClick={() => playTrack(track, likedSongs)} className="group flex items-center justify-between p-3 rounded-md hover:bg-white/10 transition-all cursor-pointer">
                   <div className="flex items-center gap-4 flex-1 overflow-hidden">
@@ -353,7 +374,9 @@ const ViewRenderer = ({
                     </div>
                     <div className="min-w-0 pr-4">
                       <h4 className={`font-semibold-600 text-sm truncate ${isActive ? 'text-accent-purple' : 'text-white'}`}>{track.title}</h4>
-                      <p className="text-xs text-text-subdued truncate">{track.uploaderName}</p>
+                      <p className="text-xs text-text-subdued truncate">
+                        {renderArtists(track, viewArtist)}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-6">
@@ -421,7 +444,9 @@ const ViewRenderer = ({
                       <img src={getImageUrl(track)} alt="" className="w-10 h-10 rounded shadow-md shrink-0" />
                       <div className="min-w-0 pr-4">
                         <h4 className={`font-semibold-600 text-sm truncate ${isActive ? 'text-accent-purple' : 'text-white'}`}>{track.title}</h4>
-                        <p className="text-xs text-text-subdued truncate font-medium">{track.uploaderName}</p>
+                        <p className="text-xs text-text-subdued truncate font-medium">
+                          {renderArtists(track, viewArtist)}
+                        </p>
                       </div>
                     </div>
                     {isActive && (
@@ -441,7 +466,11 @@ const ViewRenderer = ({
            <h3 className="text-3xl font-bold-700 text-white mb-8">Recently Played</h3>
            <div className="flex flex-col">
              {recentlyPlayed.map((track, i) => {
-                const isActive = currentTrack && (currentTrack.id === track.id || currentTrack.url === track.url || currentTrack.videoId === track.videoId);
+                const isActive = currentTrack && (
+                  (track.id && currentTrack.id === track.id) ||
+                  (track.videoId && (currentTrack.videoId === track.videoId || currentTrack.id === track.videoId)) ||
+                  (track.url && currentTrack.url === track.url)
+                );
                 return (
                   <div key={i} onClick={() => playTrack(track, recentlyPlayed)} className="group flex items-center justify-between p-3 rounded-md hover:bg-white/10 transition-all cursor-pointer">
                     <div className="flex items-center gap-4 flex-1 overflow-hidden">
@@ -458,7 +487,9 @@ const ViewRenderer = ({
                       <img src={getImageUrl(track)} alt="" className="w-10 h-10 rounded shadow-md shrink-0" />
                       <div className="min-w-0 pr-4">
                         <h4 className={`font-semibold-600 text-sm truncate ${isActive ? 'text-accent-purple' : 'text-white'}`}>{track.title}</h4>
-                        <p className="text-xs text-text-subdued truncate font-medium">{track.uploaderName}</p>
+                        <p className="text-xs text-text-subdued truncate font-medium">
+                          {renderArtists(track, viewArtist)}
+                        </p>
                       </div>
                     </div>
                     <span className="text-xs font-semibold-600 text-white/60 w-10 text-right">{formatTime(track.duration || 0)}</span>
@@ -499,7 +530,11 @@ const ViewRenderer = ({
 
               <div className="flex flex-col">
                 {playlistData.items.map((track, i) => {
-                  const isActive = currentTrack && (currentTrack.id === track.id || currentTrack.url === track.url || currentTrack.videoId === track.videoId);
+                  const isActive = currentTrack && (
+                   (track.id && currentTrack.id === track.id) ||
+                   (track.videoId && (currentTrack.videoId === track.videoId || currentTrack.id === track.videoId)) ||
+                   (track.url && currentTrack.url === track.url)
+                 );
                   return (
                     <div key={track.id + i} onClick={() => playTrack(track, playlistData.items)} className="group flex items-center justify-between p-3 rounded-md hover:bg-white/10 transition-all cursor-pointer">
                       <div className="flex items-center gap-4 flex-1 overflow-hidden">
@@ -515,7 +550,9 @@ const ViewRenderer = ({
                         </div>
                         <div className="min-w-0 pr-4 text-left">
                           <h4 className={`font-semibold-600 text-sm truncate ${isActive ? 'text-accent-purple' : 'text-white'}`}>{track.title}</h4>
-                          <p className="text-xs text-text-subdued truncate font-medium">{track.uploaderName}</p>
+                          <p className="text-xs text-text-subdued truncate font-medium">
+                            {renderArtists(track, viewArtist)}
+                          </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-6">
@@ -528,6 +565,220 @@ const ViewRenderer = ({
               </div>
             </>
           )}
+        </section>
+      );
+
+    case 'artist':
+      if (isArtistLoading) {
+        return (
+          <div className="flex flex-col items-center justify-center min-h-[60vh] text-white/40">
+            <div className="w-10 h-10 border-4 border-white/20 border-t-white rounded-full animate-spin mb-4" />
+            <p className="text-sm font-semibold tracking-wider uppercase">Loading Artist Profile...</p>
+          </div>
+        );
+      }
+      if (!artistData) {
+        return (
+          <div className="flex flex-col items-center justify-center min-h-[60vh] text-white/40">
+            <p className="text-lg">No artist profile loaded.</p>
+          </div>
+        );
+      }
+      return (
+        <section className="pb-24 view-transition text-left">
+          {/* Artist Banner Header */}
+          <div className="relative rounded-2xl overflow-hidden mb-8 shadow-2xl border border-white/10 group min-h-[250px] md:min-h-[350px] flex items-end">
+            <div 
+              className="absolute inset-0 bg-cover bg-center filter blur-3xl opacity-35 scale-110 pointer-events-none"
+              style={{ backgroundImage: `url(${getImageUrl(artistData.thumbnail)})` }}
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent z-10" />
+            
+            <div className="relative z-20 flex flex-col md:flex-row items-center md:items-end gap-6 md:gap-8 p-6 md:p-10 w-full">
+              <div className="w-32 h-32 md:w-44 md:h-44 rounded-full overflow-hidden shadow-2xl border-4 border-white/10 shrink-0 bg-black/40">
+                <img 
+                  src={getImageUrl(artistData.thumbnail) || '/default_artist.png'} 
+                  alt="" 
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-1000" 
+                />
+              </div>
+              <div className="flex-1 text-center md:text-left">
+                <div className="flex items-center justify-center md:justify-start gap-2 mb-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-white/10 border border-white/10 text-white/80">Verified Artist</span>
+                </div>
+                <h1 className="text-3xl md:text-5xl lg:text-6xl font-bold text-white tracking-tight mb-3 drop-shadow-md">
+                  {artistData.name}
+                </h1>
+                {artistData.description && (
+                  <p className="text-xs md:text-sm text-white/60 line-clamp-3 md:line-clamp-4 max-w-2xl leading-relaxed mt-2 font-medium">
+                    {artistData.description}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Action Button Suite */}
+          <div className="flex items-center gap-4 mb-8">
+            {artistData.songs && artistData.songs.length > 0 && (
+              <button 
+                onClick={() => {
+                  setQueue(artistData.songs);
+                  setCurrentIndex(0);
+                  playTrack(artistData.songs[0]);
+                }}
+                className="flex items-center gap-2 bg-white text-black hover:bg-white/95 px-6 py-3 rounded-full font-bold shadow-lg transition-transform hover:scale-105 active:scale-95"
+              >
+                <Play className="w-5 h-5 fill-current" />
+                Play All
+              </button>
+            )}
+            <button 
+              onClick={() => setCurrentView('home')} 
+              className="px-6 py-3 rounded-full border border-white/20 text-white/80 hover:text-white hover:border-white/40 hover:bg-white/5 font-semibold text-sm transition-all"
+            >
+              Back to Home
+            </button>
+          </div>
+
+          {/* Artist's Top Picks (Songs) Section */}
+          <div className="mb-10">
+            <h2 className="text-xl md:text-2xl font-bold text-white tracking-tight mb-4 flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-text-bright-accent" />
+              Top Songs
+            </h2>
+            
+            {artistData.songs && artistData.songs.length > 0 ? (
+              <div className="bg-white/5 border border-white/5 rounded-xl overflow-hidden backdrop-blur-md">
+                <div className="divide-y divide-white/5">
+                  {artistData.songs.map((track, i) => {
+                    const isCurrent = currentTrack && (currentTrack.id === track.id || currentTrack.videoId === track.id);
+                    return (
+                      <div 
+                        key={track.id || i}
+                        className={`flex items-center gap-4 px-4 py-3 hover:bg-white/10 group transition-colors cursor-pointer ${isCurrent ? 'bg-white/10' : ''}`}
+                        onClick={() => {
+                          const updatedQueue = artistData.songs;
+                          const trackIdx = updatedQueue.findIndex(t => t.id === track.id);
+                          setQueue(updatedQueue);
+                          setCurrentIndex(trackIdx !== -1 ? trackIdx : i);
+                          playTrack(track);
+                        }}
+                      >
+                        <div className="w-6 text-center text-sm font-bold text-white/30 group-hover:text-white shrink-0 font-mono">
+                          {isCurrent ? (
+                            <div className="w-2.5 h-2.5 rounded-full bg-text-bright-accent mx-auto animate-pulse" />
+                          ) : (
+                            <span>{i + 1}</span>
+                          )}
+                        </div>
+
+                        <div className="w-10 h-10 rounded-md overflow-hidden bg-black/40 shrink-0 shadow-md">
+                          <img src={track.thumbnail} alt="" className="w-full h-full object-cover" />
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-semibold truncate ${isCurrent ? 'text-text-bright-accent' : 'text-white'}`}>
+                            {track.title}
+                          </p>
+                          <p className="text-xs text-white/40 truncate mt-0.5">
+                            {renderArtists(track, viewArtist)}
+                          </p>
+                        </div>
+
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleLike(track);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity p-2 text-white/40 hover:text-white"
+                        >
+                          <Heart 
+                            className={`w-4 h-4 ${likedSongs.some(s => s.url === track.url || s.id === track.id) ? 'text-text-bright-accent fill-text-bright-accent' : ''}`} 
+                          />
+                        </button>
+
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDownload(track);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity p-2 text-white/40 hover:text-white"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+
+                        <span className="text-xs font-mono text-white/40 w-10 text-right shrink-0">
+                          {formatTime(track.duration)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-white/40 italic">No top tracks listed for this artist.</p>
+            )}
+          </div>
+
+          {/* Albums & Singles Sections */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {/* Albums */}
+            {artistData.albums && artistData.albums.length > 0 && (
+              <div>
+                <h2 className="text-xl font-bold text-white tracking-tight mb-4 flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-text-bright-accent" />
+                  Albums
+                </h2>
+                <div className="grid grid-cols-2 gap-4">
+                  {artistData.albums.slice(0, 4).map((album, i) => (
+                    <div 
+                      key={album.id || i}
+                      onClick={() => fetchPlaylist(album.id)}
+                      className="bg-white/5 border border-white/5 p-4 rounded-xl hover:bg-white/10 group transition-all cursor-pointer shadow-lg hover:shadow-2xl"
+                    >
+                      <div className="aspect-square rounded-lg overflow-hidden bg-black/40 shadow-md mb-3 relative">
+                        <img src={album.thumbnail} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                          <Play className="w-10 h-10 text-white fill-current animate-fade-in" />
+                        </div>
+                      </div>
+                      <h4 className="text-sm font-bold text-white truncate">{album.title}</h4>
+                      {album.year && <p className="text-xs text-white/40 mt-1">{album.year}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Singles */}
+            {artistData.singles && artistData.singles.length > 0 && (
+              <div>
+                <h2 className="text-xl font-bold text-white tracking-tight mb-4 flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-text-bright-accent" />
+                  Singles & EPs
+                </h2>
+                <div className="grid grid-cols-2 gap-4">
+                  {artistData.singles.slice(0, 4).map((single, i) => (
+                    <div 
+                      key={single.id || i}
+                      onClick={() => fetchPlaylist(single.id)}
+                      className="bg-white/5 border border-white/5 p-4 rounded-xl hover:bg-white/10 group transition-all cursor-pointer shadow-lg hover:shadow-2xl"
+                    >
+                      <div className="aspect-square rounded-lg overflow-hidden bg-black/40 shadow-md mb-3 relative">
+                        <img src={single.thumbnail} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                          <Play className="w-10 h-10 text-white fill-current animate-fade-in" />
+                        </div>
+                      </div>
+                      <h4 className="text-sm font-bold text-white truncate">{single.title}</h4>
+                      {single.year && <p className="text-xs text-white/40 mt-1">{single.year}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </section>
       );
 
