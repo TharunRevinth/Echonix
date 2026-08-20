@@ -66,20 +66,26 @@ const ViewRenderer = ({
             </div>
 
             {/* Playlists */}
-            {ytmusicPlaylists.map((p, i) => (
-              <div key={p.playlistId || i} onClick={() => fetchPlaylist(p.playlistId)} className="spotify-card group cursor-pointer">
-                <div className="relative aspect-square rounded-md overflow-hidden mb-4 shadow-xl">
-                  <img src={getImageUrl(p.thumbnails?.sort((a,b) => b.width - a.width)[0]?.url || p)} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
-                  <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-all duration-300">
-                    <div className="w-10 h-10 rounded-full bg-text-bright-accent flex items-center justify-center shadow-xl">
-                      <Play className="text-black fill-black w-5 h-5 ml-1" />
+            {ytmusicPlaylists.map((p, i) => {
+              if (!p) return null;
+              const thumb = Array.isArray(p.thumbnails) 
+                ? p.thumbnails.slice().sort((a,b) => (b?.width || 0) - (a?.width || 0))[0]?.url 
+                : (p.thumbnail || '');
+              return (
+                <div key={p.playlistId || i} onClick={() => fetchPlaylist(p.playlistId)} className="spotify-card group cursor-pointer">
+                  <div className="relative aspect-square rounded-md overflow-hidden mb-4 shadow-xl">
+                    <img src={getImageUrl(thumb || p)} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                    <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-all duration-300">
+                      <div className="w-10 h-10 rounded-full bg-text-bright-accent flex items-center justify-center shadow-xl">
+                        <Play className="text-black fill-black w-5 h-5 ml-1" />
+                      </div>
                     </div>
                   </div>
+                  <h4 className="font-bold-700 text-white text-sm line-clamp-1">{p.title}</h4>
+                  <p className="text-xs text-text-subdued font-semibold-600 mt-1">{p.count || p.itemCount || 0} Tracks</p>
                 </div>
-                <h4 className="font-bold-700 text-white text-sm line-clamp-1">{p.title}</h4>
-                <p className="text-xs text-text-subdued font-semibold-600 mt-1">{p.count || p.itemCount || 0} Tracks</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       );

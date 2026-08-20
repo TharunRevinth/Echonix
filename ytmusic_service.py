@@ -279,6 +279,66 @@ def get_artist(channelId):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+def parse_headers_to_dict(headers_str):
+    headers = {}
+    for line in headers_str.strip().split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        if ':' in line:
+            key, val = line.split(':', 1)
+            k = key.strip().strip('"').strip("'")
+            v = val.strip().strip('"').strip("'")
+            headers[k] = v
+    return headers
+
+@app.route('/ytmusic/setup', methods=['POST'])
+def setup():
+    verify()
+    try:
+        data = request.json or {}
+        headers_raw = data.get('headers_raw', '')
+        if not headers_raw:
+            return jsonify({"error": "No credentials provided"}), 400
+
+        import json
+        if isinstance(headers_raw, dict):
+            with open(browser_json, 'w', encoding='utf-8') as f:
+                json.dump(headers_raw, f, indent=4)
+        elif isinstance(headers_raw, str) and headers_raw.strip().startswith('{'):
+            try:
+                parsed = json.loads(headers_raw)
+                with open(browser_json, 'w', encoding='utf-8') as f:
+                    json.dump(parsed, f, indent=4)
+            except Exception:
+                parsed = parse_headers_to_dict(headers_raw)
+                with open(browser_json, 'w', encoding='utf-8') as f:
+                    json.dump(parsed, f, indent=4)
+        else:
+            if 'curl' in headers_raw.lower():
+                import re
+                headers_list = []
+                pattern = re.compile(r'(?:-H|--header)\s+(?:\'([^\']*)\'|"([^"]*)"|(\S+))')
+                matches = pattern.findall(headers_raw)
+                for m in matches:
+                    val = m[0] or m[1] or m[2]
+                    if val and ':' in val:
+                        headers_list.append(val)
+                if headers_list:
+                    headers_raw = '\n'.join(headers_list)
+
+            parsed = parse_headers_to_dict(headers_raw)
+            if not parsed:
+                return jsonify({"error": "Could not parse headers"}), 400
+            with open(browser_json, 'w', encoding='utf-8') as f:
+                json.dump(parsed, f, indent=4)
+
+        global ytmusic
+        ytmusic = YTMusic(browser_json)
+        return jsonify({"success": True, "message": "Credentials updated and reloaded successfully"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
     port = int(os.getenv("YTMUSIC_SERVICE_PORT", 5002))
     app.run(host='0.0.0.0', port=port, debug=False)

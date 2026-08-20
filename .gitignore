@@ -31,3 +31,4 @@ browser.json
 headers_auth.json
 oauth.json
 __pycache__
+.lyrics_cache

@@ -92,6 +92,7 @@ const parseDuration = (durStr) => {
 
 app.use(cors());
 app.use(express.json()); // Enable JSON body parsing for POST requests
+app.use(express.static(path.join(__dirname, 'build')));
 
 // A robust list of public Piped instances to use as "shields"
 const PIPED_INSTANCES = [
@@ -247,82 +248,242 @@ const getResourcePath = (relativePath) => {
 
 const YTDLP_PATH = getResourcePath('node_modules/youtube-dl-exec/bin/yt-dlp');
 
-// --- PURE PROXY STREAM ENDPOINT ---
-app.get('/api/stream', (req, res) => {
-    const videoId = req.query.id;
-    const start = req.query.start ? parseFloat(req.query.start) : 0;
-    if (!videoId) return res.status(400).send("Missing ID");
+// --- AUDIO STREAM CACHE & PRELOAD MANAGER ---
+const audioCache = new Map(); // videoId -> { buffer: Buffer, contentType: string, timestamp: number }
+const activeJobs = new Map(); // videoId -> { process: ChildProcess, listeners: Set<Response>, chunks: Buffer[], contentType: string, headersSent: boolean }
+const MAX_CACHE_ITEMS = 30;
 
-    log(`[Proxy] Direct Pipe started for: ${videoId}${start > 0 ? ` at seek: ${start}s` : ''}`);
+const pruneAudioCache = () => {
+    while (audioCache.size > MAX_CACHE_ITEMS) {
+        const oldestKey = audioCache.keys().next().value;
+        audioCache.delete(oldestKey);
+    }
+};
+
+const startAudioJob = (videoId) => {
+    if (activeJobs.has(videoId)) return activeJobs.get(videoId);
+    if (audioCache.has(videoId)) return null;
 
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
-
-    // Arguments for yt-dlp to pipe best audio to stdout as mp3
     const args = [
         youtubeUrl,
+        '--js-runtimes', 'node',
+        '--extractor-args', 'youtube:player_client=web_embedded',
         '-f', 'bestaudio',
-        '--extract-audio',
-        '--audio-format', 'mp3',
         '-o', '-',
         '--no-playlist',
         '--no-warnings',
         '--force-ipv4',
-        '--no-part',
-        '--no-cache-dir',
-        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+        '--no-part'
     ];
 
-    if (start > 0) {
-        args.push('--download-sections', `*${start}-inf`);
-    }
-
     const ytDlpProcess = spawn(YTDLP_PATH, args);
+    const job = {
+        process: ytDlpProcess,
+        listeners: new Set(),
+        chunks: [],
+        contentType: 'audio/webm',
+        headersSent: false
+    };
+    activeJobs.set(videoId, job);
 
     ytDlpProcess.stdout.on('data', (chunk) => {
-        if (!res.headersSent) {
-            res.writeHead(200, {
-                'Content-Type': 'audio/mpeg',
-                'Access-Control-Allow-Origin': '*',
-                'Accept-Ranges': 'none',
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache',
-                'Expires': '0',
-                'Connection': 'keep-alive'
-            });
+        job.chunks.push(chunk);
+
+        if (!job.headersSent) {
+            if (chunk.length >= 4 && chunk[0] === 0x1A && chunk[1] === 0x45 && chunk[2] === 0xDF && chunk[3] === 0xA3) {
+                job.contentType = 'audio/webm';
+            } else if (chunk.length >= 3 && chunk[0] === 0x49 && chunk[1] === 0x44 && chunk[2] === 0x33) {
+                job.contentType = 'audio/mpeg';
+            } else if (chunk.length >= 8 && chunk.toString('utf8', 4, 8) === 'ftyp') {
+                job.contentType = 'audio/mp4';
+            }
+            job.headersSent = true;
         }
-    });
 
-    // Pipe the audio data directly to the user
-    ytDlpProcess.stdout.pipe(res);
-
-    ytDlpProcess.on('error', (err) => {
-        log(`[Spawn Error] Failed to start yt-dlp: ${err.message}`);
-        if (!res.headersSent) res.status(500).send("Playback engine failed to start");
+        // Forward to all active client responses
+        for (const res of job.listeners) {
+            try {
+                if (!res.headersSent) {
+                    res.writeHead(200, {
+                        'Content-Type': job.contentType,
+                        'Access-Control-Allow-Origin': '*',
+                        'Accept-Ranges': 'none',
+                        'Cache-Control': 'public, max-age=3600',
+                        'Connection': 'keep-alive'
+                    });
+                }
+                res.write(chunk);
+            } catch (e) {
+                job.listeners.delete(res);
+            }
+        }
     });
 
     ytDlpProcess.stderr.on('data', (data) => {
         const msg = data.toString();
-        // Only log actual errors to keep the log clean
         if (msg.includes('ERROR')) {
             log(`[yt-dlp Error] ${msg.trim()}`);
         }
     });
 
     ytDlpProcess.on('close', (code, signal) => {
-        if (code !== 0 && signal !== 'SIGTERM' && signal !== 'SIGKILL') {
-            log(`[Proxy] yt-dlp process exited with code ${code} and signal ${signal}`);
-            if (!res.headersSent) {
-                res.status(500).send("Playback engine failed");
-            }
-        } else {
-            log(`[Proxy] Stream closed for ${videoId} (${signal || 'Complete'})`);
+        activeJobs.delete(videoId);
+        if (code === 0 && job.chunks.length > 0) {
+            const fullBuffer = Buffer.concat(job.chunks);
+            pruneAudioCache();
+            audioCache.set(videoId, {
+                buffer: fullBuffer,
+                contentType: job.contentType,
+                timestamp: Date.now()
+            });
+            log(`[Audio Cache] Cached stream for: ${videoId} (${(fullBuffer.length / (1024 * 1024)).toFixed(2)} MB)`);
         }
+        for (const res of job.listeners) {
+            try { res.end(); } catch (e) {}
+        }
+        job.listeners.clear();
     });
 
-    // Handle client disconnect
+    ytDlpProcess.on('error', (err) => {
+        log(`[Spawn Error] Failed yt-dlp job for ${videoId}: ${err.message}`);
+        activeJobs.delete(videoId);
+        for (const res of job.listeners) {
+            try {
+                if (!res.headersSent) res.status(500).send("Playback engine failed");
+                else res.end();
+            } catch (e) {}
+        }
+        job.listeners.clear();
+    });
+
+    return job;
+};
+
+// --- PRELOAD ENDPOINT ---
+app.get('/api/stream-prefetch', (req, res) => {
+    const videoId = req.query.id;
+    if (!videoId || videoId === 'undefined' || videoId === 'null') {
+        return res.status(400).send("Missing ID");
+    }
+    if (audioCache.has(videoId) || activeJobs.has(videoId)) {
+        return res.json({ status: "already_cached_or_loading" });
+    }
+    log(`[Prefetch] Background pre-warming audio for: ${videoId}`);
+    startAudioJob(videoId);
+    res.json({ status: "prefetching_started" });
+});
+
+// --- PURE PROXY STREAM ENDPOINT (High Speed Cache + Range Support) ---
+app.get('/api/stream', (req, res) => {
+    const videoId = req.query.id;
+    const start = req.query.start ? parseFloat(req.query.start) : 0;
+    if (!videoId || videoId === 'undefined' || videoId === 'null') {
+        return res.status(400).send("Missing or invalid video ID");
+    }
+
+    // 1. Instant Cache Hit
+    if (audioCache.has(videoId) && start === 0) {
+        const cached = audioCache.get(videoId);
+        const total = cached.buffer.length;
+        const range = req.headers.range;
+
+        if (range) {
+            const parts = range.replace(/bytes=/, "").split("-");
+            const startByte = parseInt(parts[0], 10);
+            const endByte = parts[1] ? parseInt(parts[1], 10) : total - 1;
+            const chunksize = (endByte - startByte) + 1;
+            const slice = cached.buffer.subarray(startByte, endByte + 1);
+
+            res.writeHead(206, {
+                'Content-Range': `bytes ${startByte}-${endByte}/${total}`,
+                'Accept-Ranges': 'bytes',
+                'Content-Length': chunksize,
+                'Content-Type': cached.contentType,
+                'Access-Control-Allow-Origin': '*',
+                'Cache-Control': 'public, max-age=86400'
+            });
+            return res.end(slice);
+        }
+
+        res.writeHead(200, {
+            'Content-Length': total,
+            'Content-Type': cached.contentType,
+            'Accept-Ranges': 'bytes',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'public, max-age=86400'
+        });
+        return res.end(cached.buffer);
+    }
+
+    // 2. Custom seek time requested -> spawn dedicated seek stream
+    if (start > 0) {
+        log(`[Proxy] Direct Seek Stream started for: ${videoId} at ${start}s`);
+        const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
+        const args = [
+            youtubeUrl,
+            '--js-runtimes', 'node',
+            '--extractor-args', 'youtube:player_client=web_embedded',
+            '-f', 'bestaudio',
+            '-o', '-',
+            '--no-playlist',
+            '--no-warnings',
+            '--force-ipv4',
+            '--no-part',
+            '--download-sections', `*${start}-inf`
+        ];
+
+        const ytProc = spawn(YTDLP_PATH, args);
+        ytProc.stdout.on('data', (chunk) => {
+            if (!res.headersSent) {
+                let contentType = 'audio/webm';
+                if (chunk.length >= 4 && chunk[0] === 0x1A && chunk[1] === 0x45 && chunk[2] === 0xDF && chunk[3] === 0xA3) contentType = 'audio/webm';
+                else if (chunk.length >= 3 && chunk[0] === 0x49 && chunk[1] === 0x44 && chunk[2] === 0x33) contentType = 'audio/mpeg';
+                else if (chunk.length >= 8 && chunk.toString('utf8', 4, 8) === 'ftyp') contentType = 'audio/mp4';
+
+                res.writeHead(200, {
+                    'Content-Type': contentType,
+                    'Access-Control-Allow-Origin': '*',
+                    'Accept-Ranges': 'none',
+                    'Connection': 'keep-alive'
+                });
+            }
+        });
+        ytProc.stdout.pipe(res);
+        req.on('close', () => ytProc.kill());
+        return;
+    }
+
+    // 3. Live Multiplexing from Active Job or Fresh Job
+    log(`[Proxy] Live Audio Stream started for: ${videoId}`);
+    let job = activeJobs.get(videoId);
+    if (!job) {
+        job = startAudioJob(videoId);
+    }
+
+    // Send all existing chunks buffered so far immediately
+    if (job.chunks.length > 0) {
+        if (!res.headersSent) {
+            res.writeHead(200, {
+                'Content-Type': job.contentType,
+                'Access-Control-Allow-Origin': '*',
+                'Accept-Ranges': 'none',
+                'Cache-Control': 'public, max-age=3600',
+                'Connection': 'keep-alive'
+            });
+        }
+        for (const chunk of job.chunks) {
+            res.write(chunk);
+        }
+    }
+
+    job.listeners.add(res);
+
     req.on('close', () => {
-        log(`[Proxy] Client disconnected, killing yt-dlp for ${videoId}`);
-        ytDlpProcess.kill();
+        if (job) {
+            job.listeners.delete(res);
+            // If no listeners and not in prefetch, keep downloading to fill cache
+        }
     });
 });
 
@@ -330,7 +491,9 @@ app.get('/api/stream', (req, res) => {
 app.get('/api/download', (req, res) => {
     const videoId = req.query.id;
     const title = req.query.title || 'audio';
-    if (!videoId) return res.status(400).send("Missing ID");
+    if (!videoId || videoId === 'undefined' || videoId === 'null') {
+        return res.status(400).send("Missing or invalid video ID");
+    }
 
     log(`[Download] Starting download for: ${videoId} (${title})`);
 
@@ -344,14 +507,15 @@ app.get('/api/download', (req, res) => {
     // Use yt-dlp to convert to mp3 and pipe to response
     const args = [
         youtubeUrl,
+        '--js-runtimes', 'node',
+        '--extractor-args', 'youtube:player_client=web_embedded',
         '-f', 'bestaudio',
         '--extract-audio',
         '--audio-format', 'mp3',
         '-o', '-',
         '--no-playlist',
         '--no-warnings',
-        '--force-ipv4',
-        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+        '--force-ipv4'
     ];
 
     const ytDlpProcess = spawn(YTDLP_PATH, args);
@@ -420,12 +584,13 @@ app.get('/api/playlist', async (req, res) => {
             const url = `https://www.youtube.com/playlist?list=${id}`;
             const args = [
                 url,
+                '--js-runtimes', 'node',
+                '--extractor-args', 'youtube:player_client=web_embedded',
                 '--dump-single-json',
                 '--flat-playlist',
                 '--playlist-end', '50',
                 '--no-warnings',
-                '--force-ipv4',
-                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+                '--force-ipv4'
             ];
 
             const ytDlpProcess = spawn(YTDLP_PATH, args);
@@ -682,6 +847,20 @@ app.post('/api/ytmusic/taste-profile', limiter, async (req, res) => {
     }
 });
 
+app.post('/api/ytmusic/setup', limiter, async (req, res) => {
+    if (!req.body) return res.status(400).json({ error: 'No body' });
+    try {
+        const response = await axios.post(
+            `${YTMUSIC_BASE}/setup`,
+            req.body,
+            { headers: { 'X-Internal-Token': INTERNAL_SECRET } }
+        );
+        res.json(response.data);
+    } catch (err) {
+        res.status(500).json({ error: 'Setup service unavailable' });
+    }
+});
+
 app.get('/api/ytmusic/:path', async (req, res) => {
     const path = req.params.path;
     if (!path || path.includes('..')) {
@@ -808,6 +987,11 @@ app.get('/api/lyrics/ovh', async (req, res) => {
 });
 
 // Spotify Auth removed
+
+app.get('/*splat', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next();
+    res.sendFile(path.join(__dirname, 'build', 'index.html'));
+});
 
 app.listen(PORT, '0.0.0.0', () => {
     log(`Echonix Pure-Proxy Server active on port ${PORT}`);

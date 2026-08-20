@@ -10,8 +10,11 @@ import ViewRenderer from './components/ViewRenderer';
 
 // Utils
 import { 
-  getHost, ENGINES, formatTime
+  getHost, ENGINES, formatTime, getApiBaseUrl
 } from './utils';
+
+const API_URL = getApiBaseUrl();
+const currentHost = getHost();
 
 const cleanString = (str) => {
   if (!str) return "";
@@ -112,7 +115,7 @@ const getGreeting = () => {
 
 function App() {
   // --- STATE ---
-  const [activeEngine, setActiveEngine] = useState(`http://${getHost()}:5001/api`);
+  const [activeEngine, setActiveEngine] = useState(`${API_URL}/api`);
   const [currentView, setCurrentView] = useState('home');
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -231,7 +234,7 @@ function App() {
         .filter(Boolean);
 
       const res = await axios.post(
-        `http://${getHost()}:5001/api/ytmusic/recommendations`,
+        `${API_URL}/api/ytmusic/recommendations`,
         {
           currentTrack: {
             id: track.id,
@@ -283,9 +286,20 @@ function App() {
     if (!imgUrl) return;
 
     // Use getImageUrl to resolve relative paths if any
-    const fullImgUrl = typeof imgUrl === 'string' && imgUrl.startsWith('http') 
-        ? imgUrl 
-        : ((currentTrack.engine || activeEngine).replace(/\/api$/, '') + imgUrl);
+    let fullImgUrl = "";
+    if (typeof imgUrl === 'string') {
+      if (imgUrl.startsWith('http')) {
+        if (imgUrl.includes('/api/proxy-image')) {
+          fullImgUrl = imgUrl;
+        } else {
+          const apiBase = (currentTrack.engine || activeEngine);
+          const baseHost = apiBase.endsWith('/api') ? apiBase.slice(0, -4) : apiBase;
+          fullImgUrl = `${baseHost}/api/proxy-image?url=${encodeURIComponent(imgUrl)}`;
+        }
+      } else {
+        fullImgUrl = ((currentTrack.engine || activeEngine).replace(/\/api$/, '') + imgUrl);
+      }
+    }
 
     const img = new Image();
     img.crossOrigin = "Anonymous";
@@ -401,17 +415,17 @@ function App() {
       if (completed === 3) setIsYtmusicLoading(false);
     };
 
-    axios.get(`http://${getHost()}:5001/api/ytmusic/home`)
+    axios.get(`${API_URL}/api/ytmusic/home`)
       .then(res => setYtmusicHome(res.data))
       .catch(e => console.warn('Home err', e.message))
       .finally(checkDone);
 
-    axios.get(`http://${getHost()}:5001/api/ytmusic/playlists`)
+    axios.get(`${API_URL}/api/ytmusic/playlists`)
       .then(res => setYtmusicPlaylists(res.data))
       .catch(e => console.warn('Playlists err', e.message))
       .finally(checkDone);
 
-    axios.get(`http://${getHost()}:5001/api/ytmusic/history`)
+    axios.get(`${API_URL}/api/ytmusic/history`)
       .then(res => setYtmusicHistory(res.data.slice(0, 20).map(t => ({
         id: t.videoId || t.id,
         title: t.title || t.name || 'Unknown Title',
@@ -427,16 +441,15 @@ function App() {
 
   // --- ENGINE LOGIC ---
   const fetchWithFallback = async (endpoint) => {
-    const currentHost = getHost();
     const preferredEngines = [
-      `http://${currentHost}:5001/api`,
+      `${API_URL}/api`,
       ...ENGINES
     ];
 
     for (const engine of preferredEngines) {
       try {
         const base = engine.endsWith('/') ? engine.slice(0, -1) : engine;
-        const isInternalApi = engine.includes('localhost') || engine.includes(currentHost);
+        const isInternalApi = engine.startsWith(API_URL) || engine.includes('localhost') || engine.includes(currentHost);
 
         if (isInternalApi && endpoint.startsWith('/streams/')) {
           const videoId = endpoint.split('/streams/')[1];
@@ -477,7 +490,7 @@ function App() {
 
     for (const model of models) {
       try {
-        const res = await axios.post(`http://${getHost()}:5001/api/ai-chat`, {
+        const res = await axios.post(`${API_URL}/api/ai-chat`, {
           model: model,
           messages: [{ role: "user", content: prompt }],
           max_tokens: 1000 // Global limit to prevent "insufficient credits" 402 errors
@@ -519,7 +532,7 @@ function App() {
     try {
       let resolvedId = artistId;
       if (!resolvedId && artistName) {
-        const searchRes = await axios.get(`http://${getHost()}:5001/api/ytmusic/artist-search`, {
+        const searchRes = await axios.get(`${API_URL}/api/ytmusic/artist-search`, {
           params: { name: artistName }
         });
         resolvedId = searchRes.data?.id;
@@ -529,7 +542,7 @@ function App() {
         setCurrentView('home');
         return;
       }
-      const res = await axios.get(`http://${getHost()}:5001/api/ytmusic/artist/${resolvedId}`);
+      const res = await axios.get(`${API_URL}/api/ytmusic/artist/${resolvedId}`);
       setArtistData(res.data);
     } catch (err) {
       console.error("Failed to fetch artist profile:", err);
@@ -630,11 +643,14 @@ function App() {
   };
 
   const playTrack = async (track, newQueue = null) => {
-    const videoId = track.id || track.videoId || track.url?.split('v=')[1];
+    if (!track) return;
+
+    let videoId = track.id || track.videoId || (track.url?.includes('v=') ? track.url.split('v=')[1]?.split('&')[0] : null);
+    if (videoId === 'undefined' || videoId === 'null') videoId = null;
     
     // Prevent double-playing same track
-    if (currentVideoRef.current === videoId) return;
-    currentVideoRef.current = videoId;
+    if (videoId && currentVideoRef.current === videoId) return;
+    if (videoId) currentVideoRef.current = videoId;
 
     setSeekOffset(0);
     setCurrentTime(0);
@@ -649,10 +665,10 @@ function App() {
 
       if (newQueue) {
         setQueue(newQueue);
-        const index = newQueue.findIndex(t => t.id === track.id || t.url === track.url);
+        const index = newQueue.findIndex(t => (t.id || t.videoId) === (track.id || track.videoId) || t.url === track.url);
         setCurrentIndex(index !== -1 ? index : 0);
       } else if (queue.length > 0) {
-        const index = queue.findIndex(t => t.id === track.id || t.url === track.url);
+        const index = queue.findIndex(t => (t.id || t.videoId) === (track.id || track.videoId) || t.url === track.url);
         if (index !== -1) {
           setCurrentIndex(index);
           isNavigatingInCurrentQueue = true;
@@ -665,38 +681,52 @@ function App() {
         setCurrentIndex(0);
       }
 
-      let videoId = track.id || track.url?.split('v=')[1];
       let ytDuration = track.duration;
 
-      // --- LRCLIB RESOLUTION ---
-      if (track.isLrclib) {
+      // --- RESOLVE YOUTUBE ID IF MISSING OR LRCLIB ---
+      if (track.isLrclib || !videoId) {
         setLyrics([{ time: 0, text: "Resolving audio frequency..." }]);
-        const resolveRes = await axios.get(`http://${getHost()}:5001/api/resolve-youtube?title=${encodeURIComponent(track.title)}&artist=${encodeURIComponent(track.uploaderName)}`);
+        const resolveRes = await axios.get(`${API_URL}/api/resolve-youtube?title=${encodeURIComponent(track.title || '')}&artist=${encodeURIComponent(track.uploaderName || track.artists?.[0]?.name || '')}`);
         videoId = resolveRes.data.videoId;
         ytDuration = resolveRes.data.duration;
       }
 
-      const { data, engine } = await fetchWithFallback(`/streams/${videoId}`);
-      
-      let streamUrl;
-      if (data.isLocalStream) streamUrl = `${engine}/stream?id=${videoId}`;
-      else streamUrl = (data.audioStreams?.find(s => s.format === 'M4A') || data.audioStreams?.[0])?.url;
+      if (!videoId || videoId === 'undefined' || videoId === 'null') {
+        throw new Error("Unable to resolve a valid YouTube video ID");
+      }
 
-      const updatedTrack = { ...track, streamUrl, engine, videoId, ytDuration };
+      currentVideoRef.current = videoId;
+
+      const streamUrl = `${API_URL}/api/stream?id=${videoId}`;
+      const updatedTrack = { ...track, id: videoId, videoId, streamUrl, engine: API_URL, ytDuration };
+      
       setCurrentTrack(updatedTrack);
       setDuration(ytDuration || track.duration || 0);
       setIsPlaying(true);
       setLyricsOffset(0); 
 
-      // Use the updated track which might contain lyrics from search with a small delay to avoid abort race
-      setTimeout(() => fetchLyrics(updatedTrack), 100);
-      setRecentlyPlayed(prev => [updatedTrack, ...prev.filter(t => t.id !== track.id)].slice(0, 50));
+      // Preload next track in queue in background for zero-latency next song
+      const activeQueue = newQueue || queue;
+      const currentIdx = newQueue 
+        ? newQueue.findIndex(t => (t.id || t.videoId) === (track.id || track.videoId) || t.url === track.url)
+        : currentIndex;
+      const nextTrack = activeQueue && activeQueue[currentIdx + 1];
+      const nextVid = nextTrack && (nextTrack.id || nextTrack.videoId || (nextTrack.url?.includes('v=') ? nextTrack.url.split('v=')[1]?.split('&')[0] : null));
+      if (nextVid && nextVid !== 'undefined' && nextVid !== 'null') {
+        axios.get(`${API_URL}/api/stream-prefetch?id=${nextVid}`).catch(() => {});
+      }
 
-      // Trigger recommendations
+      // Background tasks (non-blocking)
+      setTimeout(() => fetchLyrics(updatedTrack), 100);
+      setRecentlyPlayed(prev => [updatedTrack, ...prev.filter(t => (t.id || t.videoId) !== videoId)].slice(0, 50));
+
       if (!newQueue && !isNavigatingInCurrentQueue) {
         fetchRecommendations(updatedTrack);
       }
-    } catch (err) { alert("PLAYBACK ENGINE OFFLINE OR RESOLUTION FAILED"); }
+    } catch (err) { 
+      console.error("Playback error:", err);
+      alert("PLAYBACK ENGINE OFFLINE OR RESOLUTION FAILED"); 
+    }
   };
 
   const fetchLyrics = async (track) => {
@@ -781,7 +811,7 @@ function App() {
       stripFeatures(cleanedArtist),
     ])].filter(Boolean);
     
-    const API_BASE = `http://${getHost()}:5001`;
+    const API_BASE = API_URL;
     
     const tryLrclib = async (artist, title) => {
       if (isStale()) return false;
@@ -899,8 +929,8 @@ function App() {
     const tryiTunesThenLrclib = async (artist, title) => {
       if (isStale()) return false;
       try {
-        const itunesRes = await axios.get(
-          `http://${getHost()}:5001/api/lyrics/itunes`,
+        const res = await axios.get(
+          `${API_BASE}/api/lyrics/itunes`,
           {
             params: { artist, title },
             signal,
@@ -1053,7 +1083,7 @@ function App() {
   };
 
   const playRadioStation = (station) => {
-    const proxyUrl = `http://${getHost()}:5001/api/proxy-radio?url=${encodeURIComponent(station.url_resolved)}`;
+    const proxyUrl = `${API_URL}/api/proxy-radio?url=${encodeURIComponent(station.url_resolved)}`;
     playTrack({
       title: station.name, uploaderName: station.tags, thumbnail: station.favicon,
       streamUrl: proxyUrl, id: station.stationuuid, isRadio: true
@@ -1066,7 +1096,7 @@ function App() {
     if (!url) return "";
     if (url.startsWith('http')) {
       if (url.includes('googleusercontent.com')) {
-        return `http://${getHost()}:5001/api/proxy-image?url=${encodeURIComponent(url)}`;
+        return `${API_URL}/api/proxy-image?url=${encodeURIComponent(url)}`;
       }
       return url;
     }
@@ -1084,7 +1114,19 @@ function App() {
 
   const handleDownload = (track) => {
     const videoId = track.id || track.url?.split('v=')[1];
-    window.location.href = `http://${getHost()}:5001/api/download?id=${videoId}&title=${encodeURIComponent(track.title)}`;
+    const downloadUrl = `${API_URL}/api/download?id=${videoId}&title=${encodeURIComponent(track.title)}`;
+    
+    const isCapacitor = window.Capacitor !== undefined;
+    if (isCapacitor) {
+      window.open(downloadUrl, '_system');
+    } else {
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.target = '_blank';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
   };
 
   return (

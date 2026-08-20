@@ -2,31 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap');
 
 :root {
-  --bg-base: #121212;
-  --bg-highlight: #1a1a1a;
+  --bg-base: #000000;
+  --bg-highlight: #080808;
   --bg-press: #000;
-  --bg-elevated-base: #242424;
-  --bg-elevated-highlight: #2a2a2a;
-  --text-base: #fff;
-  --text-subdued: #a7a7a7;
-  --text-bright-accent: #1ed760; /* Spotify Green */
-  --accent-purple: #9D50FF;
-  --essential-base: #fff;
+  --bg-elevated-base: linear-gradient(135deg, rgba(20, 20, 20, 0.6) 0%, rgba(10, 10, 10, 0.9) 100%);
+  --bg-elevated-highlight: linear-gradient(135deg, rgba(40, 40, 40, 0.7) 0%, rgba(20, 20, 20, 0.95) 100%);
+  --text-base: #ffffff;
+  --text-subdued: #a0a0a0;
+  --text-bright-accent: #ffffff; /* Monochromatic Theme is Pure White */
+  --accent-purple: #ffffff;
+  --essential-base: #ffffff;
   --essential-subdued: #727272;
-  --card-hover: #282828;
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  --card-hover: rgba(255, 255, 255, 0.08);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
 }
 
 body {
   margin: 0;
   background-color: var(--bg-base);
   color: var(--text-base);
-  font-family: 'Figtree', sans-serif;
+  font-family: 'Plus Jakarta Sans', 'Be Vietnam Pro', sans-serif;
   overflow: hidden;
   height: 100vh;
   height: 100svh;
@@ -56,32 +56,56 @@ body {
   left: 0;
   z-index: -1;
   pointer-events: none;
-  background: radial-gradient(circle at 50% 0%, rgba(var(--glow-rgb, 157, 80, 255), 0.15) 0%, var(--bg-base) 85%);
+  background: radial-gradient(circle at 50% 0%, rgba(var(--glow-rgb, 255, 255, 255), 0.08) 0%, var(--bg-base) 85%);
   transition: background 1.5s ease;
 }
 
 /* Full screen gradient for expanded player */
 .expanded-player-bg {
   background-color: var(--bg-base);
-  background-image: linear-gradient(to bottom, rgba(var(--glow-rgb, 157, 80, 255), 0.4) 0%, var(--bg-base) 100%);
+  background-image: linear-gradient(to bottom, rgba(var(--glow-rgb, 255, 255, 255), 0.12) 0%, var(--bg-base) 100%);
 }
 
 /* Spotify Card Styles */
 .spotify-card {
   background: var(--bg-elevated-base);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: var(--radius-md);
   padding: 16px;
-  transition: background-color 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
 }
 
 .spotify-card:hover {
   background: var(--bg-elevated-highlight);
+  border-color: rgba(255, 255, 255, 0.12);
+  transform: translateY(-2px);
 }
 
 .spotify-card img {
   border-radius: var(--radius-sm);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.7);
+  transition: transform 0.3s ease;
+}
+
+.spotify-card:hover img {
+  transform: scale(1.02);
+}
+
+/* Glass Player */
+.glass-player {
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  background: rgba(10, 10, 10, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 15px 50px rgba(0, 0, 0, 0.8);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card {
+  background: linear-gradient(135deg, rgba(34, 34, 34, 0.6) 0%, rgba(10, 10, 10, 0.9) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
 }
 
 /* Progress Slider */
@@ -129,7 +153,7 @@ input[type="range"].progress-slider::-webkit-slider-thumb {
 
 /* Typography */
 h1, h2, h3, h4 {
-  font-family: 'Figtree', sans-serif;
+  font-family: 'Plus Jakarta Sans', sans-serif;
   letter-spacing: -0.02em;
 }
 

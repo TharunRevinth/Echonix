@@ -7,6 +7,7 @@
     "postinstall": "node node_modules/youtube-dl-exec/scripts/postinstall.js",
     "start": "concurrently \"npm run server\" \"react-scripts start\"",
     "server": "node server.js",
+    "start-hosted": "concurrently \"node server.js\" \"python3 ytmusic_service.py\"",
     "dev": "concurrently \"node server.js\" \"react-scripts start\" \"python3 ytmusic_service.py\"",
     "electron": "electron .",
     "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",

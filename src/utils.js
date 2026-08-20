@@ -76,6 +76,36 @@ export const getHost = () => {
   return host;
 };
 
+export const getApiBaseUrl = () => {
+  try {
+    const savedUrl = localStorage.getItem('echonixServerUrl');
+    if (savedUrl) return savedUrl.replace(/\/+$/, '');
+  } catch (e) {
+    console.error("Failed to read server URL from localStorage:", e);
+  }
+
+  const isElectron = window.electronAPI && window.electronAPI.isElectron;
+  if (isElectron) {
+    return 'http://localhost:5001';
+  }
+
+  const host = window.location.hostname;
+  const protocol = window.location.protocol;
+  
+  const isLocal = host === 'localhost' || 
+                  host === '127.0.0.1' || 
+                  host.startsWith('192.168.') || 
+                  host.startsWith('10.') || 
+                  host.startsWith('172.');
+                  
+  if (isLocal) {
+    return `http://${getHost()}:5001`;
+  } else {
+    // Under Cloudflare Tunnel / ngrok, port 80/443 mapping is implicit in hostname
+    return `${protocol}//${host}`;
+  }
+};
+
 export const ENGINES = [
   "https://pipedapi.syncpundit.io",
   "https://pipedapi.kavin.rocks",
